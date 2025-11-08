@@ -7,7 +7,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
-import DOMPurify from 'isomorphic-dompurify'
 
 interface Material {
   id: string
@@ -159,10 +158,12 @@ export default function Home() {
   }
 
   const getSanitizedHtml = (html: string) => {
-    return DOMPurify.sanitize(html, {
-      ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'img', 'a', 'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'span', 'div'],
-      ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'target', 'rel']
-    })
+    // Простая санитизация: удаляем потенциально опасные теги и атрибуты
+    return html
+      .replace(/<script[^>]*>.*?<\/script>/gi, '') // Удаляем скрипты
+      .replace(/<iframe[^>]*>.*?<\/iframe>/gi, '') // Удаляем iframe
+      .replace(/on\w+\s*=\s*["'][^"']*["']/gi, '') // Удаляем event handlers (onclick, onload, etc)
+      .replace(/javascript:/gi, '') // Удаляем javascript: в ссылках
   }
 
   return (
