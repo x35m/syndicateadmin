@@ -26,8 +26,14 @@ export class ApiService {
   }
 
   private async fetchWithAuth(url: string, options: RequestInit = {}) {
-    const headers: Record<string, string> = {
+    // Объединяем headers из options с дефолтными
+    const defaultHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
+    }
+    
+    const headers = {
+      ...defaultHeaders,
+      ...(options.headers || {}),
     }
 
     // CommaFeed использует API ключ в query параметре
@@ -80,17 +86,21 @@ export class ApiService {
     try {
       console.log(`[${new Date().toISOString()}] Subscribing to feed: ${feedUrl}`)
       
-      const url = `${this.baseUrl}/rest/feed/subscribe`
-      const data = await this.fetchWithAuth(url, {
-        method: 'POST',
-        body: JSON.stringify({
-          url: feedUrl,
-          categoryId: categoryId,
-          title: '', // CommaFeed автоматически определит название
-        }),
+      // CommaFeed API для POST запросов может требовать параметры в URL
+      const params = new URLSearchParams({
+        url: feedUrl,
+        categoryId: categoryId,
       })
       
-      console.log(`[${new Date().toISOString()}] Successfully subscribed to feed`)
+      const url = `${this.baseUrl}/rest/feed/subscribe?${params.toString()}`
+      const data = await this.fetchWithAuth(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      })
+      
+      console.log(`[${new Date().toISOString()}] Successfully subscribed to feed`, data)
       
       return {
         success: true,
@@ -110,12 +120,10 @@ export class ApiService {
     try {
       console.log(`[${new Date().toISOString()}] Unsubscribing from feed: ${feedId}`)
       
-      const url = `${this.baseUrl}/rest/feed/unsubscribe`
+      // Передаем параметры в URL
+      const url = `${this.baseUrl}/rest/feed/unsubscribe?id=${feedId}`
       await this.fetchWithAuth(url, {
         method: 'POST',
-        body: JSON.stringify({
-          id: feedId,
-        }),
       })
       
       console.log(`[${new Date().toISOString()}] Successfully unsubscribed from feed`)
