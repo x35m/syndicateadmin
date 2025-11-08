@@ -53,6 +53,27 @@ export class ApiService {
     return response.json()
   }
 
+  // Специальный метод для POST запросов с телом
+  private async fetchPostWithAuth(url: string, body: any) {
+    // Для POST запросов передаем API ключ только в заголовке
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${this.apiKey}`, // Пробуем Bearer токен
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    })
+
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status} ${response.statusText}`)
+    }
+
+    return response.json()
+  }
+
   // Получить список всех фидов из корневой категории
   async getSubscriptions(): Promise<any[]> {
     try {
@@ -88,14 +109,11 @@ export class ApiService {
       
       const url = `${this.baseUrl}/rest/feed/subscribe`
       
-      // Пробуем отправить как JSON (стандартный REST API способ)
-      const data = await this.fetchWithAuth(url, {
-        method: 'POST',
-        body: JSON.stringify({
-          url: feedUrl,
-          categoryId: categoryId,
-          title: '', // опциональное название фида
-        }),
+      // Используем специальный метод для POST с Bearer токеном
+      const data = await this.fetchPostWithAuth(url, {
+        url: feedUrl,
+        categoryId: categoryId,
+        title: '', // опциональное название фида
       })
       
       console.log(`[${new Date().toISOString()}] Successfully subscribed to feed`, data)
@@ -119,11 +137,8 @@ export class ApiService {
       console.log(`[${new Date().toISOString()}] Unsubscribing from feed: ${feedId}`)
       
       const url = `${this.baseUrl}/rest/feed/unsubscribe`
-      await this.fetchWithAuth(url, {
-        method: 'POST',
-        body: JSON.stringify({
-          id: feedId,
-        }),
+      await this.fetchPostWithAuth(url, {
+        id: feedId,
       })
       
       console.log(`[${new Date().toISOString()}] Successfully unsubscribed from feed`)
