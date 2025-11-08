@@ -74,7 +74,10 @@ export class DatabaseService {
           await client.query(
             `INSERT INTO materials (id, title, content, full_content, thumbnail, author, created_at, fetched_at, source, status)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-             ON CONFLICT (id) DO NOTHING`,
+             ON CONFLICT (id) DO UPDATE SET
+               full_content = EXCLUDED.full_content,
+               thumbnail = EXCLUDED.thumbnail,
+               fetched_at = EXCLUDED.fetched_at`,
             [
               material.id,
               material.title,
