@@ -38,9 +38,12 @@ export class ApiService {
     try {
       // CommaFeed API: получаем все записи из всех категорий
       // id=all означает получить записи из всех подписок
-      const url = `${this.baseUrl}/rest/category/entries?id=all&readType=unread&offset=0&limit=100&order=desc`
+      // readType=all - загружаем ВСЕ статьи (включая прочитанные)
+      const url = `${this.baseUrl}/rest/category/entries?id=all&readType=all&offset=0&limit=100&order=desc`
       
       const data = await this.fetchWithAuth(url)
+
+      console.log(`[${new Date().toISOString()}] Fetched ${data.entries?.length || 0} entries from CommaFeed`)
 
       // Адаптируем данные CommaFeed к нашему формату
       return this.transformApiResponse(data)
