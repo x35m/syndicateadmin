@@ -26,6 +26,26 @@ export class DatabaseService {
         )
       `)
       
+      // Миграция: добавляем новые колонки если их нет
+      await client.query(`
+        DO $$ 
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'materials' AND column_name = 'full_content'
+          ) THEN
+            ALTER TABLE materials ADD COLUMN full_content TEXT;
+          END IF;
+          
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'materials' AND column_name = 'thumbnail'
+          ) THEN
+            ALTER TABLE materials ADD COLUMN thumbnail TEXT;
+          END IF;
+        END $$;
+      `)
+      
       await client.query(`
         CREATE INDEX IF NOT EXISTS idx_materials_status ON materials(status)
       `)
