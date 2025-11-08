@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { FeedManager } from '@/components/feed-manager'
 
 interface Material {
   id: string
@@ -283,6 +284,9 @@ export default function Home() {
             </Card>
           </div>
         )}
+
+        {/* Feed Manager */}
+        <FeedManager />
 
         {/* Filters */}
         <div className="flex gap-2">

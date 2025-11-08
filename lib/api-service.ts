@@ -75,6 +75,61 @@ export class ApiService {
     }
   }
 
+  // Подписаться на новый фид
+  async subscribeFeed(feedUrl: string, categoryId: string = 'all'): Promise<{ success: boolean; feedId?: string; error?: string }> {
+    try {
+      console.log(`[${new Date().toISOString()}] Subscribing to feed: ${feedUrl}`)
+      
+      const url = `${this.baseUrl}/rest/feed/subscribe`
+      const data = await this.fetchWithAuth(url, {
+        method: 'POST',
+        body: JSON.stringify({
+          url: feedUrl,
+          categoryId: categoryId,
+          title: '', // CommaFeed автоматически определит название
+        }),
+      })
+      
+      console.log(`[${new Date().toISOString()}] Successfully subscribed to feed`)
+      
+      return {
+        success: true,
+        feedId: data.id || data.feedId,
+      }
+    } catch (error) {
+      console.error('Error subscribing to feed:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to subscribe to feed',
+      }
+    }
+  }
+
+  // Отписаться от фида
+  async unsubscribeFeed(feedId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      console.log(`[${new Date().toISOString()}] Unsubscribing from feed: ${feedId}`)
+      
+      const url = `${this.baseUrl}/rest/feed/unsubscribe`
+      await this.fetchWithAuth(url, {
+        method: 'POST',
+        body: JSON.stringify({
+          id: feedId,
+        }),
+      })
+      
+      console.log(`[${new Date().toISOString()}] Successfully unsubscribed from feed`)
+      
+      return { success: true }
+    } catch (error) {
+      console.error('Error unsubscribing from feed:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to unsubscribe from feed',
+      }
+    }
+  }
+
   // Загрузить статьи из конкретного фида
   async fetchFromFeed(feedId: string, limit: number = 30): Promise<Material[]> {
     try {
