@@ -1,16 +1,20 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { RefreshCw, Database, CheckCircle2, Archive } from 'lucide-react'
+import { RefreshCw, Database, CheckCircle2, Archive, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import DOMPurify from 'isomorphic-dompurify'
 
 interface Material {
   id: string
   title: string
   content: string
+  fullContent?: string
+  thumbnail?: string
   author?: string
   createdAt: string
   fetchedAt: string
@@ -32,6 +36,8 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [filter, setFilter] = useState<string | null>(null)
+  const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
 
   const fetchMaterials = async (status?: string | null) => {
     try {
@@ -145,6 +151,18 @@ export default function Home() {
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString('ru-RU')
+  }
+
+  const openMaterialDialog = (material: Material) => {
+    setSelectedMaterial(material)
+    setIsDialogOpen(true)
+  }
+
+  const getSanitizedHtml = (html: string) => {
+    return DOMPurify.sanitize(html, {
+      ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'img', 'a', 'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'span', 'div'],
+      ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'target', 'rel']
+    })
   }
 
   return (
@@ -265,6 +283,7 @@ export default function Home() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-20">Обложка</TableHead>
                     <TableHead>Заголовок</TableHead>
                     <TableHead>Автор</TableHead>
                     <TableHead>Дата создания</TableHead>
@@ -274,7 +293,23 @@ export default function Home() {
                 </TableHeader>
                 <TableBody>
                   {materials.map((material) => (
-                    <TableRow key={material.id}>
+                    <TableRow key={material.id} className="cursor-pointer hover:bg-accent/50" onClick={() => openMaterialDialog(material)}>
+                      <TableCell>
+                        {material.thumbnail ? (
+                          <img 
+                            src={material.thumbnail} 
+                            alt={material.title}
+                            className="w-16 h-16 object-cover rounded"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none'
+                            }}
+                          />
+                        ) : (
+                          <div className="w-16 h-16 bg-muted rounded flex items-center justify-center text-xs text-muted-foreground">
+                            Нет фото
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell className="font-medium max-w-md">
                         <div className="truncate">{material.title}</div>
                         <div className="text-xs text-muted-foreground truncate mt-1">
@@ -284,7 +319,7 @@ export default function Home() {
                       <TableCell>{material.author || '—'}</TableCell>
                       <TableCell>{formatDate(material.createdAt)}</TableCell>
                       <TableCell>{getStatusBadge(material.status)}</TableCell>
-                      <TableCell>
+                      <TableCell onClick={(e) => e.stopPropagation()}>
                         <div className="flex gap-2">
                           {material.status === 'new' && (
                             <Button
@@ -332,9 +367,96 @@ export default function Home() {
             <p>• Автоматическая синхронизация: каждые 5 минут</p>
             <p>• Статистика обновляется: каждые 30 секунд</p>
             <p>• Нажмите на карточки статистики для фильтрации</p>
+            <p>• Кликните на материал чтобы открыть полную версию</p>
           </CardContent>
         </Card>
       </div>
+
+      {/* Material Details Dialog */}
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          {selectedMaterial && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-2xl pr-8">{selectedMaterial.title}</DialogTitle>
+                <DialogDescription className="flex items-center gap-4 mt-2">
+                  <span>{selectedMaterial.author || 'Автор неизвестен'}</span>
+                  <span>•</span>
+                  <span>{formatDate(selectedMaterial.createdAt)}</span>
+                  <span>•</span>
+                  <span>{getStatusBadge(selectedMaterial.status)}</span>
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="mt-4">
+                {selectedMaterial.source && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
+                    <ExternalLink className="h-4 w-4" />
+                    <span>Источник: {selectedMaterial.source}</span>
+                  </div>
+                )}
+
+                {selectedMaterial.fullContent ? (
+                  <div 
+                    className="prose prose-sm max-w-none dark:prose-invert"
+                    dangerouslySetInnerHTML={{ __html: getSanitizedHtml(selectedMaterial.fullContent) }}
+                    style={{
+                      fontSize: '14px',
+                      lineHeight: '1.6',
+                    }}
+                  />
+                ) : (
+                  <div className="text-muted-foreground">
+                    {selectedMaterial.content}
+                  </div>
+                )}
+
+                <div className="mt-6 flex gap-2 pt-4 border-t">
+                  {selectedMaterial.status === 'new' && (
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        handleStatusChange(selectedMaterial.id, 'processed')
+                        setIsDialogOpen(false)
+                      }}
+                    >
+                      Обработать
+                    </Button>
+                  )}
+                  {selectedMaterial.status === 'processed' && (
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        handleStatusChange(selectedMaterial.id, 'archived')
+                        setIsDialogOpen(false)
+                      }}
+                    >
+                      В архив
+                    </Button>
+                  )}
+                  {selectedMaterial.status === 'archived' && (
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        handleStatusChange(selectedMaterial.id, 'new')
+                        setIsDialogOpen(false)
+                      }}
+                    >
+                      Восстановить
+                    </Button>
+                  )}
+                  <Button
+                    variant="secondary"
+                    onClick={() => setIsDialogOpen(false)}
+                  >
+                    Закрыть
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

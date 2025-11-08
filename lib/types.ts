@@ -2,6 +2,8 @@ export interface Material {
   id: string
   title: string
   content: string
+  fullContent?: string // Полный HTML контент с форматированием
+  thumbnail?: string // URL первого изображения (обложка)
   author?: string
   createdAt: string
   fetchedAt: string

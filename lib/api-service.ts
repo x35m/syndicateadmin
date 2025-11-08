@@ -60,13 +60,20 @@ export class ApiService {
     }
 
     return entries.map((entry: any) => {
-      // Извлекаем текстовый контент из HTML
-      const content = this.stripHtml(entry.content || '')
+      const htmlContent = entry.content || ''
+      
+      // Извлекаем текстовый контент из HTML (для preview)
+      const content = this.stripHtml(htmlContent)
+      
+      // Извлекаем первое изображение для обложки
+      const thumbnail = this.extractFirstImage(htmlContent)
       
       return {
         id: String(entry.id || Math.random()),
         title: entry.title || 'Untitled',
-        content: content.substring(0, 500), // Ограничиваем длину
+        content: content.substring(0, 500), // Ограничиваем длину для preview
+        fullContent: htmlContent, // Сохраняем полный HTML
+        thumbnail: thumbnail, // URL первого изображения
         author: entry.author || entry.feedName || undefined,
         createdAt: entry.date ? new Date(entry.date).toISOString() : new Date().toISOString(),
         fetchedAt: new Date().toISOString(),
@@ -74,6 +81,14 @@ export class ApiService {
         status: 'new' as const,
       }
     })
+  }
+
+  // Извлекаем URL первого изображения из HTML
+  private extractFirstImage(html: string): string | undefined {
+    // Ищем первый тег <img> и извлекаем src
+    const imgRegex = /<img[^>]+src=["']([^"']+)["']/i
+    const match = html.match(imgRegex)
+    return match ? match[1] : undefined
   }
 
   // Вспомогательная функция для удаления HTML тегов

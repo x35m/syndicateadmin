@@ -15,6 +15,8 @@ export class DatabaseService {
           id VARCHAR(255) PRIMARY KEY,
           title TEXT NOT NULL,
           content TEXT,
+          full_content TEXT,
+          thumbnail TEXT,
           author VARCHAR(255),
           created_at TIMESTAMP NOT NULL,
           fetched_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -50,13 +52,15 @@ export class DatabaseService {
       for (const material of materials) {
         try {
           await client.query(
-            `INSERT INTO materials (id, title, content, author, created_at, fetched_at, source, status)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            `INSERT INTO materials (id, title, content, full_content, thumbnail, author, created_at, fetched_at, source, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
              ON CONFLICT (id) DO NOTHING`,
             [
               material.id,
               material.title,
               material.content,
+              material.fullContent,
+              material.thumbnail,
               material.author,
               material.createdAt,
               material.fetchedAt,
@@ -83,7 +87,7 @@ export class DatabaseService {
 
   async getAllMaterials(limit = 100, offset = 0): Promise<Material[]> {
     const result = await pool.query(
-      `SELECT id, title, content, author, 
+      `SELECT id, title, content, full_content as "fullContent", thumbnail, author, 
               created_at as "createdAt", 
               fetched_at as "fetchedAt", 
               source, status
@@ -98,7 +102,7 @@ export class DatabaseService {
 
   async getMaterialsByStatus(status: string): Promise<Material[]> {
     const result = await pool.query(
-      `SELECT id, title, content, author, 
+      `SELECT id, title, content, full_content as "fullContent", thumbnail, author, 
               created_at as "createdAt", 
               fetched_at as "fetchedAt", 
               source, status
