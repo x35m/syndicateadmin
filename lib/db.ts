@@ -60,17 +60,27 @@ export class DatabaseService {
     }
   }
 
-  async saveMaterials(materials: Material[]): Promise<number> {
-    if (materials.length === 0) return 0
+  async saveMaterials(materials: Material[]): Promise<{ new: number; updated: number; errors: number }> {
+    if (materials.length === 0) return { new: 0, updated: 0, errors: 0 }
 
     const client = await pool.connect()
-    let savedCount = 0
+    let newCount = 0
+    let updatedCount = 0
+    let errorCount = 0
 
     try {
       await client.query('BEGIN')
 
       for (const material of materials) {
         try {
+          // Проверяем существует ли материал
+          const checkResult = await client.query(
+            'SELECT id FROM materials WHERE id = $1',
+            [material.id]
+          )
+          
+          const exists = checkResult.rows.length > 0
+
           await client.query(
             `INSERT INTO materials (id, title, content, full_content, thumbnail, author, created_at, fetched_at, source, status)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -91,14 +101,20 @@ export class DatabaseService {
               material.status,
             ]
           )
-          savedCount++
+          
+          if (exists) {
+            updatedCount++
+          } else {
+            newCount++
+          }
         } catch (error) {
           console.error(`Error saving material ${material.id}:`, error)
+          errorCount++
         }
       }
 
       await client.query('COMMIT')
-      return savedCount
+      return { new: newCount, updated: updatedCount, errors: errorCount }
     } catch (error) {
       await client.query('ROLLBACK')
       console.error('Error in saveMaterials:', error)

@@ -11,18 +11,28 @@ export async function fetchAndSaveMaterials() {
   }
 
   isRunning = true
-  console.log(`[${new Date().toISOString()}] Starting material fetch...`)
+  console.log(`[${new Date().toISOString()}] Starting intelligent synchronization...`)
 
   try {
-    // Получаем новые материалы из API
+    // Получаем новые материалы из API (теперь из каждого фида отдельно)
     const materials = await apiService.fetchNewMaterials()
-    console.log(`Fetched ${materials.length} materials from API`)
+    console.log(`[${new Date().toISOString()}] Total fetched: ${materials.length} materials`)
 
     // Сохраняем в базу данных
-    const savedCount = await db.saveMaterials(materials)
-    console.log(`Saved ${savedCount} new materials to database`)
+    const stats = await db.saveMaterials(materials)
+    
+    console.log(`[${new Date().toISOString()}] ✅ Sync completed:`)
+    console.log(`  📥 New materials: ${stats.new}`)
+    console.log(`  🔄 Updated materials: ${stats.updated}`)
+    console.log(`  ❌ Errors: ${stats.errors}`)
+    console.log(`  📊 Total processed: ${materials.length}`)
 
-    return { fetched: materials.length, saved: savedCount }
+    return { 
+      fetched: materials.length, 
+      new: stats.new, 
+      updated: stats.updated,
+      errors: stats.errors 
+    }
   } catch (error) {
     console.error('Error in fetchAndSaveMaterials:', error)
     throw error

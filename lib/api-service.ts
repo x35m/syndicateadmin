@@ -3,6 +3,19 @@ import { Material } from './types'
 const API_BASE_URL = process.env.API_BASE_URL || 'https://organic-kangaroo.pikapod.net'
 const API_KEY = process.env.API_KEY || ''
 
+export interface SyncStats {
+  totalFeeds: number
+  totalFetched: number
+  newMaterials: number
+  updatedMaterials: number
+  skippedMaterials: number
+  feedDetails: Array<{
+    feedName: string
+    feedId: string
+    fetched: number
+  }>
+}
+
 export class ApiService {
   private baseUrl: string
   private apiKey: string
@@ -34,19 +47,90 @@ export class ApiService {
     return response.json()
   }
 
+  // Получить список всех фидов из корневой категории
+  async getSubscriptions(): Promise<any[]> {
+    try {
+      const url = `${this.baseUrl}/rest/category/get`
+      const data = await this.fetchWithAuth(url)
+      
+      // Рекурсивно извлекаем все подписки из категорий
+      const subscriptions: any[] = []
+      
+      const extractFeeds = (category: any) => {
+        if (category.feeds && Array.isArray(category.feeds)) {
+          subscriptions.push(...category.feeds)
+        }
+        if (category.children && Array.isArray(category.children)) {
+          category.children.forEach((child: any) => extractFeeds(child))
+        }
+      }
+      
+      extractFeeds(data)
+      console.log(`[${new Date().toISOString()}] Found ${subscriptions.length} feed subscriptions`)
+      
+      return subscriptions
+    } catch (error) {
+      console.error('Error fetching subscriptions:', error)
+      return []
+    }
+  }
+
+  // Загрузить статьи из конкретного фида
+  async fetchFromFeed(feedId: string, limit: number = 30): Promise<Material[]> {
+    try {
+      const url = `${this.baseUrl}/rest/feed/entries?id=${feedId}&readType=all&offset=0&limit=${limit}&order=desc`
+      const data = await this.fetchWithAuth(url)
+      
+      return this.transformApiResponse(data)
+    } catch (error) {
+      console.error(`Error fetching from feed ${feedId}:`, error)
+      return []
+    }
+  }
+
+  // Умная синхронизация: загружаем из каждого фида отдельно
   async fetchNewMaterials(): Promise<Material[]> {
     try {
-      // CommaFeed API: получаем все записи из всех категорий
-      // id=all означает получить записи из всех подписок
-      // readType=all - загружаем ВСЕ статьи (включая прочитанные)
-      const url = `${this.baseUrl}/rest/category/entries?id=all&readType=all&offset=0&limit=100&order=desc`
+      console.log(`[${new Date().toISOString()}] Starting intelligent sync...`)
       
-      const data = await this.fetchWithAuth(url)
-
-      console.log(`[${new Date().toISOString()}] Fetched ${data.entries?.length || 0} entries from CommaFeed`)
-
-      // Адаптируем данные CommaFeed к нашему формату
-      return this.transformApiResponse(data)
+      // Получаем список всех фидов
+      const subscriptions = await this.getSubscriptions()
+      
+      if (subscriptions.length === 0) {
+        console.warn('No subscriptions found in CommaFeed')
+        return []
+      }
+      
+      const allMaterials: Material[] = []
+      const feedDetails: Array<{ feedName: string; feedId: string; fetched: number }> = []
+      
+      // Загружаем статьи из каждого фида
+      for (const feed of subscriptions) {
+        const feedId = feed.id
+        const feedName = feed.name || feed.feedName || 'Unknown Feed'
+        
+        console.log(`[${new Date().toISOString()}] Syncing feed: ${feedName} (ID: ${feedId})`)
+        
+        const materials = await this.fetchFromFeed(feedId, 30) // Берем последние 30 статей из каждого фида
+        
+        allMaterials.push(...materials)
+        feedDetails.push({
+          feedName,
+          feedId,
+          fetched: materials.length,
+        })
+        
+        console.log(`[${new Date().toISOString()}] Fetched ${materials.length} entries from ${feedName}`)
+      }
+      
+      console.log(`[${new Date().toISOString()}] Total fetched: ${allMaterials.length} entries from ${subscriptions.length} feeds`)
+      console.log('[SYNC STATS]', JSON.stringify({
+        totalFeeds: subscriptions.length,
+        totalFetched: allMaterials.length,
+        feedDetails,
+      }, null, 2))
+      
+      return allMaterials
     } catch (error) {
       console.error('Error fetching materials:', error)
       throw error
@@ -60,11 +144,6 @@ export class ApiService {
     if (!Array.isArray(entries)) {
       console.warn('Unexpected data format from CommaFeed API')
       return []
-    }
-
-    // Логируем первую запись для отладки
-    if (entries.length > 0) {
-      console.log('[DEBUG] First entry structure:', JSON.stringify(entries[0], null, 2))
     }
 
     return entries.map((entry: any) => {
@@ -100,8 +179,6 @@ export class ApiService {
           }
         })
       }
-      
-      console.log(`[DEBUG] Entry "${entry.title?.substring(0, 50)}" - thumbnail: ${thumbnail ? 'YES' : 'NO'}, content length: ${htmlContent.length}`)
       
       return {
         id: String(entry.id || Math.random()),

@@ -77,7 +77,15 @@ export default function Home() {
       if (result.success) {
         await fetchMaterials(filter)
         await fetchStats()
-        alert(`Синхронизация завершена! Получено: ${result.data.fetched}, Сохранено: ${result.data.saved}`)
+        
+        const stats = result.data
+        alert(
+          `✅ Умная синхронизация завершена!\n\n` +
+          `📥 Новых материалов: ${stats.new || 0}\n` +
+          `🔄 Обновлено: ${stats.updated || 0}\n` +
+          `📊 Всего обработано: ${stats.fetched || 0}\n` +
+          `${stats.errors > 0 ? `❌ Ошибок: ${stats.errors}\n` : ''}`
+        )
       } else {
         alert(`Ошибка синхронизации: ${result.error}`)
       }
