@@ -17,14 +17,12 @@ export class ApiService {
       'Content-Type': 'application/json',
     }
 
-    // Если есть API ключ, добавляем его в заголовки
-    if (this.apiKey) {
-      headers['Authorization'] = `Bearer ${this.apiKey}`
-      // Или другой формат, если требуется:
-      // headers['X-API-Key'] = this.apiKey
-    }
+    // CommaFeed использует API ключ в query параметре
+    // Добавляем его к URL
+    const separator = url.includes('?') ? '&' : '?'
+    const urlWithAuth = this.apiKey ? `${url}${separator}apiKey=${this.apiKey}` : url
 
-    const response = await fetch(url, {
+    const response = await fetch(urlWithAuth, {
       ...options,
       headers,
     })
@@ -38,17 +36,13 @@ export class ApiService {
 
   async fetchNewMaterials(): Promise<Material[]> {
     try {
-      // ВАЖНО: Замените этот эндпоинт на реальный из документации API
-      // Примеры возможных эндпоинтов:
-      // - /api/materials
-      // - /api/posts
-      // - /api/content/recent
-      const url = `${this.baseUrl}/api/materials`
+      // CommaFeed API: получаем все записи из всех категорий
+      // id=all означает получить записи из всех подписок
+      const url = `${this.baseUrl}/rest/category/entries?id=all&readType=unread&offset=0&limit=100&order=desc`
       
       const data = await this.fetchWithAuth(url)
 
-      // Адаптируем данные к нашему формату
-      // ВАЖНО: Измените это в соответствии с реальной структурой ответа API
+      // Адаптируем данные CommaFeed к нашему формату
       return this.transformApiResponse(data)
     } catch (error) {
       console.error('Error fetching materials:', error)
@@ -57,32 +51,37 @@ export class ApiService {
   }
 
   private transformApiResponse(data: any): Material[] {
-    // ВАЖНО: Адаптируйте эту функцию под реальную структуру данных из API
-    // Это пример трансформации, который нужно изменить
+    // CommaFeed возвращает объект с полем entries
+    const entries = data.entries || []
     
-    if (Array.isArray(data)) {
-      return data.map((item: any) => ({
-        id: item.id || item._id || String(Math.random()),
-        title: item.title || item.name || 'Untitled',
-        content: item.content || item.body || item.text || '',
-        author: item.author || item.user?.name || undefined,
-        createdAt: item.created_at || item.createdAt || new Date().toISOString(),
+    if (!Array.isArray(entries)) {
+      console.warn('Unexpected data format from CommaFeed API')
+      return []
+    }
+
+    return entries.map((entry: any) => {
+      // Извлекаем текстовый контент из HTML
+      const content = this.stripHtml(entry.content || '')
+      
+      return {
+        id: String(entry.id || Math.random()),
+        title: entry.title || 'Untitled',
+        content: content.substring(0, 500), // Ограничиваем длину
+        author: entry.author || entry.feedName || undefined,
+        createdAt: entry.date ? new Date(entry.date).toISOString() : new Date().toISOString(),
         fetchedAt: new Date().toISOString(),
-        source: this.baseUrl,
+        source: entry.feedName || entry.feedUrl || this.baseUrl,
         status: 'new' as const,
-      }))
-    }
+      }
+    })
+  }
 
-    // Если данные обернуты в объект с полем data или results
-    if (data.data) {
-      return this.transformApiResponse(data.data)
-    }
-
-    if (data.results) {
-      return this.transformApiResponse(data.results)
-    }
-
-    return []
+  // Вспомогательная функция для удаления HTML тегов
+  private stripHtml(html: string): string {
+    return html
+      .replace(/<[^>]*>/g, ' ') // Удаляем HTML теги
+      .replace(/\s+/g, ' ') // Заменяем множественные пробелы на один
+      .trim()
   }
 }
 
