@@ -13,9 +13,8 @@ export class ApiService {
   }
 
   private async fetchWithAuth(url: string, options: RequestInit = {}) {
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...options.headers,
     }
 
     // Если есть API ключ, добавляем его в заголовки
