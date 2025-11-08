@@ -62,14 +62,30 @@ export class ApiService {
       return []
     }
 
+    // Логируем первую запись для отладки
+    if (entries.length > 0) {
+      console.log('[DEBUG] First entry structure:', JSON.stringify(entries[0], null, 2))
+    }
+
     return entries.map((entry: any) => {
-      const htmlContent = entry.content || ''
+      // CommaFeed может возвращать контент в разных полях
+      const htmlContent = entry.content?.content || entry.content || ''
       
       // Извлекаем текстовый контент из HTML (для preview)
       const content = this.stripHtml(htmlContent)
       
-      // Извлекаем первое изображение для обложки
-      const thumbnail = this.extractFirstImage(htmlContent)
+      // Извлекаем изображение из разных возможных мест
+      let thumbnail = this.extractFirstImage(htmlContent)
+      
+      // Если нет изображения в content, проверяем enclosureUrl или другие поля
+      if (!thumbnail && entry.enclosureUrl) {
+        thumbnail = entry.enclosureUrl
+      }
+      if (!thumbnail && entry.mediaContent && entry.mediaContent.length > 0) {
+        thumbnail = entry.mediaContent[0].url
+      }
+      
+      console.log(`[DEBUG] Entry "${entry.title?.substring(0, 50)}" - thumbnail: ${thumbnail ? 'YES' : 'NO'}, content length: ${htmlContent.length}`)
       
       return {
         id: String(entry.id || Math.random()),
