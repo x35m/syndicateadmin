@@ -86,19 +86,16 @@ export class ApiService {
     try {
       console.log(`[${new Date().toISOString()}] Subscribing to feed: ${feedUrl}`)
       
-      // Отправляем данные как form data в body
-      const formData = new URLSearchParams({
-        url: feedUrl,
-        categoryId: categoryId,
-      })
-      
       const url = `${this.baseUrl}/rest/feed/subscribe`
+      
+      // Пробуем отправить как JSON (стандартный REST API способ)
       const data = await this.fetchWithAuth(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: formData.toString(),
+        body: JSON.stringify({
+          url: feedUrl,
+          categoryId: categoryId,
+          title: '', // опциональное название фида
+        }),
       })
       
       console.log(`[${new Date().toISOString()}] Successfully subscribed to feed`, data)
@@ -121,18 +118,12 @@ export class ApiService {
     try {
       console.log(`[${new Date().toISOString()}] Unsubscribing from feed: ${feedId}`)
       
-      // Отправляем данные как form data в body
-      const formData = new URLSearchParams({
-        id: feedId,
-      })
-      
       const url = `${this.baseUrl}/rest/feed/unsubscribe`
       await this.fetchWithAuth(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: formData.toString(),
+        body: JSON.stringify({
+          id: feedId,
+        }),
       })
       
       console.log(`[${new Date().toISOString()}] Successfully unsubscribed from feed`)
