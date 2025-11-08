@@ -69,7 +69,7 @@ export class ApiService {
 
     return entries.map((entry: any) => {
       // CommaFeed может возвращать контент в разных полях
-      const htmlContent = entry.content?.content || entry.content || ''
+      let htmlContent = entry.content?.content || entry.content || ''
       
       // Извлекаем текстовый контент из HTML (для preview)
       const content = this.stripHtml(htmlContent)
@@ -85,13 +85,29 @@ export class ApiService {
         thumbnail = entry.mediaContent[0].url
       }
       
+      // Если есть enclosureUrl и его нет в HTML - добавляем в начало контента
+      if (entry.enclosureUrl && !htmlContent.includes(entry.enclosureUrl)) {
+        const imgTag = `<img src="${entry.enclosureUrl}" alt="${entry.title || ''}" style="max-width: 100%; height: auto;" />`
+        htmlContent = imgTag + htmlContent
+      }
+      
+      // Собираем все изображения из mediaContent если есть
+      if (entry.mediaContent && Array.isArray(entry.mediaContent)) {
+        entry.mediaContent.forEach((media: any) => {
+          if (media.url && !htmlContent.includes(media.url)) {
+            const imgTag = `<img src="${media.url}" alt="${media.description || ''}" style="max-width: 100%; height: auto;" />`
+            htmlContent = htmlContent + imgTag
+          }
+        })
+      }
+      
       console.log(`[DEBUG] Entry "${entry.title?.substring(0, 50)}" - thumbnail: ${thumbnail ? 'YES' : 'NO'}, content length: ${htmlContent.length}`)
       
       return {
         id: String(entry.id || Math.random()),
         title: entry.title || 'Untitled',
         content: content.substring(0, 500), // Ограничиваем длину для preview
-        fullContent: htmlContent, // Сохраняем полный HTML
+        fullContent: htmlContent, // Сохраняем полный HTML с добавленными изображениями
         thumbnail: thumbnail, // URL первого изображения
         author: entry.author || entry.feedName || undefined,
         createdAt: entry.date ? new Date(entry.date).toISOString() : new Date().toISOString(),
