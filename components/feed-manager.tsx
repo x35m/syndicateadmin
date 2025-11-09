@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, RefreshCw, Trash2, Download } from 'lucide-react'
+import { Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -205,7 +205,7 @@ export function FeedManager() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <h4 className="font-medium truncate">
-                      {feed.name || feed.feedName || 'Без названия'}
+                      {feed.title || feed.name || feed.feedName || feed.url}
                     </h4>
                     {feed.unread !== undefined && feed.unread > 0 && (
                       <Badge variant="secondary">{feed.unread} непрочитанных</Badge>
@@ -221,12 +221,9 @@ export function FeedManager() {
                     size="sm"
                     onClick={() => handleImportFeed(feed.id)}
                     disabled={importing === feed.id}
+                    title="Обновить фид"
                   >
-                    {importing === feed.id ? (
-                      <RefreshCw className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Download className="h-4 w-4" />
-                    )}
+                    <RefreshCw className={`h-4 w-4 ${importing === feed.id ? 'animate-spin' : ''}`} />
                   </Button>
                   <Button
                     variant="outline"

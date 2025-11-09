@@ -1,11 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { RefreshCw, Database, CheckCircle2, Archive, FileText } from 'lucide-react'
+import { Database, CheckCircle2, Archive, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { FeedManager } from '@/components/feed-manager'
-import Link from 'next/link'
+import { Header } from '@/components/header'
 
 interface Stats {
   total: number
@@ -80,33 +80,10 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="max-w-7xl mx-auto space-y-8">
-        {/* Header */}
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-4xl font-bold tracking-tight">Material Admin</h1>
-            <p className="text-muted-foreground mt-2">
-              Управление материалами из RSS фидов
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Link href="/materials">
-              <Button variant="outline" size="lg">
-                <FileText className="mr-2 h-4 w-4" />
-                Материалы
-              </Button>
-            </Link>
-            <Button 
-              onClick={handleSync} 
-              disabled={syncing}
-              size="lg"
-            >
-              <RefreshCw className={`mr-2 h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
-              {syncing ? 'Синхронизация...' : 'Синхронизировать'}
-            </Button>
-          </div>
-        </div>
+    <>
+      <Header />
+      <div className="min-h-screen bg-background p-8">
+        <div className="max-w-7xl mx-auto space-y-8">
 
         {/* Stats Cards */}
         {stats && (
@@ -175,43 +152,8 @@ export default function Home() {
 
         {/* Feed Manager */}
         <FeedManager />
-
-        {/* Quick Actions */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Быстрые действия</CardTitle>
-            <CardDescription>Управление системой</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">Просмотр всех материалов</p>
-                <p className="text-sm text-muted-foreground">
-                  Просмотрите, фильтруйте и управляйте всеми материалами
-                </p>
-              </div>
-              <Link href="/materials">
-                <Button>
-                  Перейти к материалам
-                </Button>
-              </Link>
-            </div>
-            
-            <div className="flex items-center justify-between pt-4 border-t">
-              <div>
-                <p className="font-medium">Синхронизация RSS фидов</p>
-                <p className="text-sm text-muted-foreground">
-                  Запустить ручную синхронизацию всех добавленных фидов
-                </p>
-              </div>
-              <Button onClick={handleSync} disabled={syncing} variant="outline">
-                <RefreshCw className={`mr-2 h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
-                {syncing ? 'Синхронизация...' : 'Синхронизировать'}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        </div>
       </div>
-    </div>
+    </>
   )
 }

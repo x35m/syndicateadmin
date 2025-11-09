@@ -21,7 +21,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { ExternalLink } from 'lucide-react'
-import Link from 'next/link'
+import { Header } from '@/components/header'
 
 export default function MaterialsPage() {
   const [materials, setMaterials] = useState<Material[]>([])
@@ -113,22 +113,10 @@ export default function MaterialsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="max-w-7xl mx-auto space-y-8">
-        {/* Header with Navigation */}
-        <div className="flex justify-between items-center">
-          <div>
-            <h1 className="text-4xl font-bold tracking-tight">Материалы</h1>
-            <p className="text-muted-foreground mt-2">
-              Просмотр и управление материалами из RSS фидов
-            </p>
-          </div>
-          <Link href="/">
-            <Button variant="outline">
-              ← На главную
-            </Button>
-          </Link>
-        </div>
+    <>
+      <Header />
+      <div className="min-h-screen bg-background p-8">
+        <div className="max-w-7xl mx-auto space-y-8">
 
         {/* Filters */}
         <Card>
@@ -310,8 +298,9 @@ export default function MaterialsPage() {
             )}
           </DialogContent>
         </Dialog>
+        </div>
       </div>
-    </div>
+    </>
   )
 }
 
