@@ -111,6 +111,37 @@ export async function POST(request: Request) {
   }
 }
 
+// PATCH - обновить название фида
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json()
+    const { id, title } = body
+
+    if (!id || !title) {
+      return NextResponse.json(
+        { success: false, error: 'Feed ID and title are required' },
+        { status: 400 }
+      )
+    }
+
+    await db.updateFeedTitle(parseInt(id), title)
+
+    return NextResponse.json({
+      success: true,
+      message: 'Feed title updated successfully',
+    })
+  } catch (error) {
+    console.error('Error updating feed title:', error)
+    return NextResponse.json(
+      { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Failed to update feed title'
+      },
+      { status: 500 }
+    )
+  }
+}
+
 // DELETE - удалить локальный фид
 export async function DELETE(request: Request) {
   try {

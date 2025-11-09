@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Plus, RefreshCw, Trash2, Edit2, Check, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -14,7 +14,18 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Label } from '@/components/ui/label'
+import { toast } from 'sonner'
 
 interface Feed {
   id: string
@@ -33,6 +44,9 @@ export function FeedManager() {
   const [newFeedUrl, setNewFeedUrl] = useState('')
   const [adding, setAdding] = useState(false)
   const [importing, setImporting] = useState<string | null>(null)
+  const [editingFeedId, setEditingFeedId] = useState<string | null>(null)
+  const [editingTitle, setEditingTitle] = useState('')
+  const [feedToDelete, setFeedToDelete] = useState<{ id: string; name: string } | null>(null)
 
   const fetchFeeds = async () => {
     try {
@@ -58,7 +72,7 @@ export function FeedManager() {
 
   const handleAddFeed = async () => {
     if (!newFeedUrl.trim()) {
-      alert('Пожалуйста, введите URL фида')
+      toast.warning('Пожалуйста, введите URL фида')
       return
     }
 
@@ -76,11 +90,8 @@ export function FeedManager() {
       
       if (result.success) {
         const stats = result.data.stats
-        alert(
-          `✅ Фид успешно добавлен!\n\n` +
-          `📥 Загружено материалов: ${stats.fetched}\n` +
-          `🆕 Новых: ${stats.new}\n` +
-          `🔄 Обновлено: ${stats.updated}`
+        toast.success(
+          `Фид успешно добавлен! Загружено: ${stats.fetched}, Новых: ${stats.new}, Обновлено: ${stats.updated}`
         )
         setNewFeedUrl('')
         setIsAddDialogOpen(false)
@@ -90,11 +101,11 @@ export function FeedManager() {
       } else {
         const errorMsg = result.error || 'Неизвестная ошибка'
         console.error('❌ Add feed failed:', errorMsg)
-        alert(`❌ Ошибка: ${errorMsg}`)
+        toast.error(`Ошибка: ${errorMsg}`)
       }
     } catch (error) {
       console.error('Error adding feed:', error)
-      alert('❌ Ошибка при добавлении фида')
+      toast.error('Ошибка при добавлении фида')
     } finally {
       setAdding(false)
     }
@@ -113,47 +124,86 @@ export function FeedManager() {
       
       if (result.success) {
         const { fetched, new: newCount, updated } = result.data
-        alert(
-          `✅ Импорт завершен!\n\n` +
-          `📥 Загружено: ${fetched}\n` +
-          `🆕 Новых: ${newCount}\n` +
-          `🔄 Обновлено: ${updated}`
+        toast.success(
+          `Импорт завершен! Загружено: ${fetched}, Новых: ${newCount}, Обновлено: ${updated}`
         )
         
         // Обновляем список фидов (чтобы показать время последней загрузки)
         await fetchFeeds()
       } else {
-        alert(`❌ Ошибка: ${result.error}`)
+        toast.error(`Ошибка: ${result.error}`)
       }
     } catch (error) {
       console.error('Error importing feed:', error)
-      alert('❌ Ошибка при импорте материалов')
+      toast.error('Ошибка при импорте материалов')
     } finally {
       setImporting(null)
     }
   }
 
-  const handleDeleteFeed = async (feedId: string, feedName: string) => {
-    if (!confirm(`Вы уверены, что хотите удалить фид "${feedName}"?\n\nМатериалы из этого фида останутся в базе.`)) {
-      return
-    }
+  const handleDeleteFeed = async () => {
+    if (!feedToDelete) return
 
     try {
-      const response = await fetch(`/api/local-feeds?id=${feedId}`, {
+      const response = await fetch(`/api/local-feeds?id=${feedToDelete.id}`, {
         method: 'DELETE',
       })
       
       const result = await response.json()
       
       if (result.success) {
-        alert('✅ Фид удален')
+        toast.success('Фид успешно удален')
         await fetchFeeds()
       } else {
-        alert(`❌ Ошибка: ${result.error}`)
+        toast.error(`Ошибка: ${result.error}`)
       }
     } catch (error) {
       console.error('Error deleting feed:', error)
-      alert('❌ Ошибка при удалении фида')
+      toast.error('Ошибка при удалении фида')
+    } finally {
+      setFeedToDelete(null)
+    }
+  }
+
+  const startEditing = (feed: Feed) => {
+    setEditingFeedId(feed.id)
+    setEditingTitle(feed.title || feed.name || feed.feedName || '')
+  }
+
+  const cancelEditing = () => {
+    setEditingFeedId(null)
+    setEditingTitle('')
+  }
+
+  const saveTitle = async (feedId: string) => {
+    if (!editingTitle.trim()) {
+      toast.warning('Название не может быть пустым')
+      return
+    }
+
+    try {
+      const response = await fetch('/api/local-feeds', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          id: feedId, 
+          title: editingTitle.trim() 
+        }),
+      })
+      
+      const result = await response.json()
+      
+      if (result.success) {
+        toast.success('Название обновлено')
+        await fetchFeeds()
+        setEditingFeedId(null)
+        setEditingTitle('')
+      } else {
+        toast.error(`Ошибка: ${result.error}`)
+      }
+    } catch (error) {
+      console.error('Error updating feed title:', error)
+      toast.error('Ошибка при обновлении названия')
     }
   }
 
@@ -205,9 +255,52 @@ export function FeedManager() {
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <h4 className="font-medium truncate">
-                      {feed.title || feed.name || feed.feedName || feed.url}
-                    </h4>
+                    {editingFeedId === feed.id ? (
+                      <div className="flex items-center gap-2 flex-1">
+                        <Input
+                          value={editingTitle}
+                          onChange={(e) => setEditingTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              saveTitle(feed.id)
+                            } else if (e.key === 'Escape') {
+                              cancelEditing()
+                            }
+                          }}
+                          className="h-8"
+                          autoFocus
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => saveTitle(feed.id)}
+                        >
+                          <Check className="h-4 w-4 text-green-600" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={cancelEditing}
+                        >
+                          <X className="h-4 w-4 text-red-600" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <h4 className="font-medium truncate">
+                          {feed.title || feed.name || feed.feedName || feed.url}
+                        </h4>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => startEditing(feed)}
+                          className="h-6 w-6 p-0"
+                          title="Редактировать название"
+                        >
+                          <Edit2 className="h-3 w-3" />
+                        </Button>
+                      </>
+                    )}
                     {feed.unread !== undefined && feed.unread > 0 && (
                       <Badge variant="secondary">{feed.unread} непрочитанных</Badge>
                     )}
@@ -229,7 +322,10 @@ export function FeedManager() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => handleDeleteFeed(feed.id, feed.name || feed.feedName || 'фида')}
+                    onClick={() => setFeedToDelete({ 
+                      id: feed.id, 
+                      name: feed.title || feed.name || feed.feedName || 'фид' 
+                    })}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -292,7 +388,29 @@ export function FeedManager() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Диалог подтверждения удаления */}
+      <AlertDialog open={feedToDelete !== null} onOpenChange={(open) => !open && setFeedToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить RSS фид</AlertDialogTitle>
+            <AlertDialogDescription>
+              Вы уверены, что хотите удалить фид "{feedToDelete?.name}"?
+              <br /><br />
+              <strong>Материалы из этого фида останутся в базе.</strong>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteFeed}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   )
 }
-

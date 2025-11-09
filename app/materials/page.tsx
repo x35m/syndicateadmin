@@ -34,6 +34,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ExternalLink, Trash2, Archive, CheckCircle } from 'lucide-react'
 import { Header } from '@/components/header'
+import { toast } from 'sonner'
 
 type BulkAction = 'published' | 'archived' | 'delete' | null
 
@@ -47,8 +48,6 @@ export default function MaterialsPage() {
   const [itemsPerPage, setItemsPerPage] = useState(25)
   const [currentPage, setCurrentPage] = useState(1)
   const [pendingAction, setPendingAction] = useState<BulkAction>(null)
-  const [showSuccessDialog, setShowSuccessDialog] = useState(false)
-  const [successMessage, setSuccessMessage] = useState('')
 
   const fetchMaterials = async (status: string = 'all') => {
     try {
@@ -89,8 +88,7 @@ export default function MaterialsPage() {
 
   const handleBulkActionClick = (action: BulkAction) => {
     if (selectedIds.size === 0) {
-      setSuccessMessage('Выберите материалы для обработки')
-      setShowSuccessDialog(true)
+      toast.warning('Выберите материалы для обработки')
       return
     }
     setPendingAction(action)
@@ -122,12 +120,10 @@ export default function MaterialsPage() {
         delete: 'удалено',
       }
       
-      setSuccessMessage(`✅ Успешно ${actionNames[action]} ${idsArray.length} материал(ов)`)
-      setShowSuccessDialog(true)
+      toast.success(`Успешно ${actionNames[action]} ${idsArray.length} материал(ов)`)
     } catch (error) {
       console.error('Error performing bulk action:', error)
-      setSuccessMessage('❌ Ошибка при выполнении действия')
-      setShowSuccessDialog(true)
+      toast.error('Ошибка при выполнении действия')
     } finally {
       setPendingAction(null)
     }
@@ -188,7 +184,13 @@ export default function MaterialsPage() {
   }
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString('ru-RU')
+    const date = new Date(dateString)
+    const day = String(date.getDate()).padStart(2, '0')
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const year = String(date.getFullYear()).slice(-2)
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    return `${day}.${month}.${year} ${hours}:${minutes}`
   }
 
   const getSanitizedHtml = (html: string) => {
@@ -278,43 +280,52 @@ export default function MaterialsPage() {
             </div>
           </div>
 
-          {/* Bulk Actions */}
+          {/* Floating Bulk Actions Panel */}
           {selectedIds.size > 0 && (
-            <Card className="border-primary">
-              <CardContent className="py-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">
-                    Выбрано: {selectedIds.size} материал(ов)
-                  </span>
-                  <div className="flex gap-2">
+            <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-4 fade-in duration-300">
+              <Card className="border-primary shadow-2xl">
+                <CardContent className="py-4 px-6">
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm font-medium">
+                      Выбрано: <span className="text-primary font-bold">{selectedIds.size}</span> материал(ов)
+                    </span>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="default"
+                        onClick={() => handleBulkActionClick('published')}
+                      >
+                        <CheckCircle className="mr-2 h-4 w-4" />
+                        Опубликовать
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleBulkActionClick('archived')}
+                      >
+                        <Archive className="mr-2 h-4 w-4" />
+                        Архивировать
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => handleBulkActionClick('delete')}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Удалить
+                      </Button>
+                    </div>
                     <Button
                       size="sm"
-                      variant="default"
-                      onClick={() => handleBulkActionClick('published')}
+                      variant="ghost"
+                      onClick={() => setSelectedIds(new Set())}
                     >
-                      <CheckCircle className="mr-2 h-4 w-4" />
-                      Опубликовать
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleBulkActionClick('archived')}
-                    >
-                      <Archive className="mr-2 h-4 w-4" />
-                      Архивировать
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => handleBulkActionClick('delete')}
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Удалить
+                      Отменить
                     </Button>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
+            </div>
           )}
 
           {/* Materials Table */}
@@ -348,10 +359,10 @@ export default function MaterialsPage() {
                           />
                         </TableHead>
                         <TableHead className="w-20">Обложка</TableHead>
-                        <TableHead>Заголовок</TableHead>
+                        <TableHead className="min-w-[300px]">Заголовок</TableHead>
                         <TableHead>Автор</TableHead>
                         <TableHead>Источник</TableHead>
-                        <TableHead>Дата создания</TableHead>
+                        <TableHead className="w-[130px]">Дата</TableHead>
                         <TableHead>Статус</TableHead>
                         <TableHead>Действия</TableHead>
                       </TableRow>
@@ -381,8 +392,10 @@ export default function MaterialsPage() {
                               </div>
                             )}
                           </TableCell>
-                          <TableCell className="font-medium max-w-md" onClick={() => openMaterialDialog(material)}>
-                            <div className="truncate">{material.title}</div>
+                          <TableCell className="font-medium" onClick={() => openMaterialDialog(material)}>
+                            <div className="line-clamp-3 leading-snug">
+                              {material.title}
+                            </div>
                           </TableCell>
                           <TableCell onClick={() => openMaterialDialog(material)}>{material.author || '—'}</TableCell>
                           <TableCell onClick={() => openMaterialDialog(material)}>
@@ -500,21 +513,6 @@ export default function MaterialsPage() {
                 >
                   {dialogContent?.actionText}
                 </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-
-          {/* Success Dialog */}
-          <AlertDialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Уведомление</AlertDialogTitle>
-                <AlertDialogDescription>
-                  {successMessage}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogAction>OK</AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>

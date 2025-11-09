@@ -246,6 +246,13 @@ export class DatabaseService {
     )
   }
 
+  async updateFeedTitle(id: number, title: string) {
+    await pool.query(
+      'UPDATE feeds SET title = $1 WHERE id = $2',
+      [title, id]
+    )
+  }
+
   async deleteFeed(id: number) {
     await pool.query(
       'UPDATE feeds SET status = $1 WHERE id = $2',
