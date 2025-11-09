@@ -25,19 +25,66 @@ export class RSSParser {
   async parseFeed(url: string): Promise<RSSFeed> {
     console.log(`[RSS Parser] Fetching feed: ${url}`)
     
+    // Пытаемся загрузить напрямую
     try {
-      const response = await fetch(url, {
+      return await this.fetchDirect(url)
+    } catch (directError) {
+      console.warn(`[RSS Parser] Direct fetch failed:`, directError)
+      
+      // Если получили 403 Forbidden, пробуем через прокси
+      if (directError instanceof Error && directError.message.includes('403')) {
+        console.log(`[RSS Parser] Trying via RSS proxy...`)
+        return await this.fetchViaProxy(url)
+      }
+      
+      throw directError
+    }
+  }
+
+  // Прямая загрузка фида
+  private async fetchDirect(url: string): Promise<RSSFeed> {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/rss+xml, application/xml, application/atom+xml, text/xml, */*',
+        'Accept-Language': 'uk-UA,uk;q=0.9,en;q=0.8,ru;q=0.7',
+        'Cache-Control': 'no-cache',
+        'Referer': new URL(url).origin,
+      },
+    })
+
+    if (!response.ok) {
+      console.error(`[RSS Parser] HTTP ${response.status}: ${response.statusText}`)
+      throw new Error(`Не вдалося завантажити фід: HTTP ${response.status} - ${response.statusText}`)
+    }
+
+    const xmlText = await response.text()
+    
+    if (!xmlText || xmlText.trim().length === 0) {
+      throw new Error('Фід порожній або не містить даних')
+    }
+    
+    console.log(`[RSS Parser] Received ${xmlText.length} bytes of XML`)
+    
+    return this.parseXML(xmlText)
+  }
+
+  // Загрузка через RSS прокси (для обхода 403 ошибок)
+  private async fetchViaProxy(url: string): Promise<RSSFeed> {
+    // Используем публичный RSS прокси сервис
+    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+    
+    console.log(`[RSS Parser] Fetching via proxy: ${proxyUrl}`)
+    
+    try {
+      const response = await fetch(proxyUrl, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/rss+xml, application/xml, application/atom+xml, text/xml, */*',
-          'Accept-Language': 'uk-UA,uk;q=0.9,en;q=0.8,ru;q=0.7',
-          'Cache-Control': 'no-cache',
+          'Accept': 'application/xml, text/xml, */*',
         },
       })
 
       if (!response.ok) {
-        console.error(`[RSS Parser] HTTP ${response.status}: ${response.statusText}`)
-        throw new Error(`Не вдалося завантажити фід: HTTP ${response.status} - ${response.statusText}`)
+        throw new Error(`Прокси повернув помилку: HTTP ${response.status}`)
       }
 
       const xmlText = await response.text()
@@ -46,24 +93,23 @@ export class RSSParser {
         throw new Error('Фід порожній або не містить даних')
       }
       
-      console.log(`[RSS Parser] Received ${xmlText.length} bytes of XML`)
+      console.log(`[RSS Parser] Received ${xmlText.length} bytes via proxy`)
       
       return this.parseXML(xmlText)
-    } catch (error) {
-      console.error('[RSS Parser] Error:', error)
+    } catch (proxyError) {
+      console.error('[RSS Parser] Proxy fetch failed:', proxyError)
       
-      if (error instanceof Error) {
-        // Более понятные сообщения об ошибках
-        if (error.message.includes('fetch failed') || error.message.includes('ENOTFOUND')) {
-          throw new Error('Не вдалося підключитися до сайту. Перевірте URL або спробуйте пізніше.')
-        } else if (error.message.includes('ECONNREFUSED')) {
+      if (proxyError instanceof Error) {
+        if (proxyError.message.includes('fetch failed') || proxyError.message.includes('ENOTFOUND')) {
+          throw new Error('Не вдалося підключитися до сайту навіть через проксі. Перевірте URL.')
+        } else if (proxyError.message.includes('ECONNREFUSED')) {
           throw new Error('З\'єднання відхилено. Сайт може бути недоступний.')
-        } else if (error.message.includes('certificate')) {
-          throw new Error('Помилка SSL сертифіката. Сайт може мати проблеми з безпекою.')
+        } else if (proxyError.message.includes('certificate')) {
+          throw new Error('Помилка SSL сертифіката.')
         }
       }
       
-      throw error
+      throw proxyError
     }
   }
 
