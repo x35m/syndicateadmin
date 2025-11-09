@@ -70,10 +70,11 @@ export class RSSParser {
       items: [],
     }
 
-    // Извлекаем все <item>...</item>
-    const itemMatches = xmlText.matchAll(/<item[^>]*>([\s\S]*?)<\/item>/gi)
+    // Извлекаем все <item>...</item> используя exec в цикле
+    const itemRegex = /<item[^>]*>([\s\S]*?)<\/item>/gi
+    let match
     
-    for (const match of itemMatches) {
+    while ((match = itemRegex.exec(xmlText)) !== null) {
       const itemXML = match[1]
       
       const item: RSSItem = {
@@ -109,10 +110,11 @@ export class RSSParser {
       items: [],
     }
 
-    // Извлекаем все <entry>...</entry>
-    const entryMatches = xmlText.matchAll(/<entry[^>]*>([\s\S]*?)<\/entry>/gi)
+    // Извлекаем все <entry>...</entry> используя exec в цикле
+    const entryRegex = /<entry[^>]*>([\s\S]*?)<\/entry>/gi
+    let match
     
-    for (const match of entryMatches) {
+    while ((match = entryRegex.exec(xmlText)) !== null) {
       const entryXML = match[1]
       
       // Извлекаем link
