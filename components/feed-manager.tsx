@@ -61,6 +61,7 @@ export function FeedManager() {
 
     setAdding(true)
     try {
+      console.log('🔄 Attempting to add feed:', newFeedUrl)
       const response = await fetch('/api/feeds', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -68,9 +69,10 @@ export function FeedManager() {
       })
       
       const result = await response.json()
+      console.log('📊 Add feed result:', result)
       
       if (result.success) {
-        alert('✅ Фид успешно добавлен!')
+        alert('✅ Фид успешно добавлен в CommaFeed!\n\nМатериалы будут автоматически импортированы.')
         setNewFeedUrl('')
         setIsAddDialogOpen(false)
         
@@ -79,14 +81,30 @@ export function FeedManager() {
         
         // Автоматически импортируем материалы из нового фида
         if (result.data.feedId) {
-          handleImportFeed(result.data.feedId)
+          setTimeout(() => handleImportFeed(result.data.feedId), 1000)
         }
       } else {
-        alert(`❌ Ошибка: ${result.error}`)
+        const errorMsg = result.error || 'Неизвестная ошибка'
+        console.error('❌ Add feed failed:', errorMsg)
+        
+        // Показываем понятное сообщение с инструкцией
+        alert(
+          `⚠️ Не удалось добавить фид через API\n\n` +
+          `${errorMsg}\n\n` +
+          `📝 Альтернативный способ:\n` +
+          `1. Откройте CommaFeed веб-интерфейс\n` +
+          `2. Добавьте фид вручную\n` +
+          `3. Вернитесь в админку\n` +
+          `4. Нажмите "Обновить" для загрузки фидов\n` +
+          `5. Используйте кнопку 📥 для импорта материалов`
+        )
       }
     } catch (error) {
       console.error('Error adding feed:', error)
-      alert('❌ Ошибка при добавлении фида')
+      alert(
+        '❌ Ошибка при добавлении фида\n\n' +
+        'Попробуйте добавить фид вручную через CommaFeed веб-интерфейс'
+      )
     } finally {
       setAdding(false)
     }
@@ -153,7 +171,19 @@ export function FeedManager() {
           <div>
             <CardTitle>Управление фидами</CardTitle>
             <CardDescription>
-              Добавляйте новые RSS фиды и импортируйте контент
+              Просматривайте и импортируйте материалы из ваших RSS фидов.<br />
+              <span className="text-xs text-muted-foreground mt-1 block">
+                💡 Совет: Добавляйте фиды через CommaFeed ({' '}
+                <a 
+                  href="https://organic-kangaroo.pikapod.net" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="underline hover:text-primary"
+                >
+                  открыть
+                </a>
+                {' '}), затем импортируйте их здесь кнопкой 📥
+              </span>
             </CardDescription>
           </div>
           <div className="flex gap-2">

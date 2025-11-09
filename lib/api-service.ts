@@ -53,27 +53,6 @@ export class ApiService {
     return response.json()
   }
 
-  // Специальный метод для POST запросов с телом
-  private async fetchPostWithAuth(url: string, body: any) {
-    // Для POST запросов передаем API ключ только в заголовке
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${this.apiKey}`, // Пробуем Bearer токен
-    }
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-    })
-
-    if (!response.ok) {
-      throw new Error(`API Error: ${response.status} ${response.statusText}`)
-    }
-
-    return response.json()
-  }
-
   // Получить список всех фидов из корневой категории
   async getSubscriptions(): Promise<any[]> {
     try {
@@ -102,54 +81,132 @@ export class ApiService {
     }
   }
 
-  // Подписаться на новый фид
+  // Подписаться на новый фид (с несколькими способами попыток)
   async subscribeFeed(feedUrl: string, categoryId: string = 'all'): Promise<{ success: boolean; feedId?: string; error?: string }> {
+    console.log(`[${new Date().toISOString()}] Subscribing to feed: ${feedUrl}`)
+    
+    const baseUrl = `${this.baseUrl}/rest/feed/subscribe`
+    const requestBody = {
+      url: feedUrl,
+      categoryId: categoryId,
+      title: '',
+    }
+    
+    // Способ 1: API ключ в query параметре + JSON body
     try {
-      console.log(`[${new Date().toISOString()}] Subscribing to feed: ${feedUrl}`)
-      
-      const url = `${this.baseUrl}/rest/feed/subscribe`
-      
-      // Используем специальный метод для POST с Bearer токеном
-      const data = await this.fetchPostWithAuth(url, {
-        url: feedUrl,
-        categoryId: categoryId,
-        title: '', // опциональное название фида
+      console.log('Attempt 1: API key in query + JSON body')
+      const url = `${baseUrl}?apiKey=${this.apiKey}`
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
       })
       
-      console.log(`[${new Date().toISOString()}] Successfully subscribed to feed`, data)
-      
-      return {
-        success: true,
-        feedId: data.id || data.feedId,
+      if (response.ok) {
+        const data = await response.json().catch(() => ({}))
+        console.log(`[${new Date().toISOString()}] Successfully subscribed (method 1)`, data)
+        return { success: true, feedId: data.id || data.feedId }
       }
+      console.log(`Attempt 1 failed: ${response.status} ${response.statusText}`)
     } catch (error) {
-      console.error('Error subscribing to feed:', error)
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to subscribe to feed',
+      console.log('Attempt 1 error:', error)
+    }
+    
+    // Способ 2: API ключ в query параметре + form data
+    try {
+      console.log('Attempt 2: API key in query + form data')
+      const url = `${baseUrl}?apiKey=${this.apiKey}`
+      const formData = new URLSearchParams({
+        url: feedUrl,
+        categoryId: categoryId,
+      })
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: formData.toString(),
+      })
+      
+      if (response.ok) {
+        const data = await response.json().catch(() => ({}))
+        console.log(`[${new Date().toISOString()}] Successfully subscribed (method 2)`, data)
+        return { success: true, feedId: data.id || data.feedId }
       }
+      console.log(`Attempt 2 failed: ${response.status} ${response.statusText}`)
+    } catch (error) {
+      console.log('Attempt 2 error:', error)
+    }
+    
+    // Способ 3: Параметры в URL
+    try {
+      console.log('Attempt 3: All params in URL')
+      const params = new URLSearchParams({
+        url: feedUrl,
+        categoryId: categoryId,
+        apiKey: this.apiKey,
+      })
+      const url = `${baseUrl}?${params.toString()}`
+      const response = await fetch(url, {
+        method: 'POST',
+      })
+      
+      if (response.ok) {
+        const data = await response.json().catch(() => ({}))
+        console.log(`[${new Date().toISOString()}] Successfully subscribed (method 3)`, data)
+        return { success: true, feedId: data.id || data.feedId }
+      }
+      console.log(`Attempt 3 failed: ${response.status} ${response.statusText}`)
+    } catch (error) {
+      console.log('Attempt 3 error:', error)
+    }
+    
+    // Все способы не сработали
+    return {
+      success: false,
+      error: 'Не удалось добавить фид. CommaFeed API не принимает запросы. Пожалуйста, добавьте фид вручную через веб-интерфейс CommaFeed, затем используйте кнопку импорта в админке.',
     }
   }
 
-  // Отписаться от фида
+  // Отписаться от фида (с несколькими способами попыток)
   async unsubscribeFeed(feedId: string): Promise<{ success: boolean; error?: string }> {
+    console.log(`[${new Date().toISOString()}] Unsubscribing from feed: ${feedId}`)
+    
+    const baseUrl = `${this.baseUrl}/rest/feed/unsubscribe`
+    
+    // Способ 1: API ключ в query + JSON body
     try {
-      console.log(`[${new Date().toISOString()}] Unsubscribing from feed: ${feedId}`)
-      
-      const url = `${this.baseUrl}/rest/feed/unsubscribe`
-      await this.fetchPostWithAuth(url, {
-        id: feedId,
+      const url = `${baseUrl}?apiKey=${this.apiKey}`
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: feedId }),
       })
       
-      console.log(`[${new Date().toISOString()}] Successfully unsubscribed from feed`)
-      
-      return { success: true }
-    } catch (error) {
-      console.error('Error unsubscribing from feed:', error)
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to unsubscribe from feed',
+      if (response.ok) {
+        console.log(`[${new Date().toISOString()}] Successfully unsubscribed (method 1)`)
+        return { success: true }
       }
+    } catch (error) {
+      console.log('Unsubscribe attempt 1 error:', error)
+    }
+    
+    // Способ 2: Параметры в URL
+    try {
+      const url = `${baseUrl}?id=${feedId}&apiKey=${this.apiKey}`
+      const response = await fetch(url, {
+        method: 'POST',
+      })
+      
+      if (response.ok) {
+        console.log(`[${new Date().toISOString()}] Successfully unsubscribed (method 2)`)
+        return { success: true }
+      }
+    } catch (error) {
+      console.log('Unsubscribe attempt 2 error:', error)
+    }
+    
+    return {
+      success: false,
+      error: 'Не удалось удалить фид через API',
     }
   }
 
