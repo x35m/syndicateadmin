@@ -71,46 +71,122 @@ export class RSSParser {
 
   // Загрузка через RSS прокси (для обхода 403 ошибок)
   private async fetchViaProxy(url: string): Promise<RSSFeed> {
-    // Используем публичный RSS прокси сервис
-    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
-    
-    console.log(`[RSS Parser] Fetching via proxy: ${proxyUrl}`)
-    
-    try {
-      const response = await fetch(proxyUrl, {
-        headers: {
-          'Accept': 'application/xml, text/xml, */*',
-        },
-      })
+    const proxies = [
+      // Прокси 1: RSS2JSON (конвертирует RSS в JSON, потом парсим)
+      {
+        name: 'RSS2JSON',
+        url: `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}`,
+        type: 'json' as const,
+      },
+      // Прокси 2: AllOrigins
+      {
+        name: 'AllOrigins',
+        url: `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+        type: 'xml' as const,
+      },
+      // Прокси 3: CORS Anywhere (резервный)
+      {
+        name: 'ThingProxy',
+        url: `https://thingproxy.freeboard.io/fetch/${encodeURIComponent(url)}`,
+        type: 'xml' as const,
+      },
+    ]
 
-      if (!response.ok) {
-        throw new Error(`Прокси повернув помилку: HTTP ${response.status}`)
-      }
+    let lastError: Error | null = null
 
-      const xmlText = await response.text()
-      
-      if (!xmlText || xmlText.trim().length === 0) {
-        throw new Error('Фід порожній або не містить даних')
-      }
-      
-      console.log(`[RSS Parser] Received ${xmlText.length} bytes via proxy`)
-      
-      return this.parseXML(xmlText)
-    } catch (proxyError) {
-      console.error('[RSS Parser] Proxy fetch failed:', proxyError)
-      
-      if (proxyError instanceof Error) {
-        if (proxyError.message.includes('fetch failed') || proxyError.message.includes('ENOTFOUND')) {
-          throw new Error('Не вдалося підключитися до сайту навіть через проксі. Перевірте URL.')
-        } else if (proxyError.message.includes('ECONNREFUSED')) {
-          throw new Error('З\'єднання відхилено. Сайт може бути недоступний.')
-        } else if (proxyError.message.includes('certificate')) {
-          throw new Error('Помилка SSL сертифіката.')
+    // Пробуем каждый прокси по очереди
+    for (const proxy of proxies) {
+      try {
+        console.log(`[RSS Parser] Trying ${proxy.name} proxy: ${proxy.url}`)
+        
+        const response = await fetch(proxy.url, {
+          headers: {
+            'Accept': 'application/json, application/xml, text/xml, */*',
+          },
+        })
+
+        if (!response.ok) {
+          console.warn(`[RSS Parser] ${proxy.name} returned HTTP ${response.status}`)
+          lastError = new Error(`${proxy.name}: HTTP ${response.status}`)
+          continue
         }
+
+        if (proxy.type === 'json') {
+          // RSS2JSON возвращает JSON
+          const jsonData = await response.json()
+          
+          if (jsonData.status !== 'ok') {
+            console.warn(`[RSS Parser] RSS2JSON error:`, jsonData.message)
+            lastError = new Error(`RSS2JSON: ${jsonData.message || 'Unknown error'}`)
+            continue
+          }
+          
+          console.log(`[RSS Parser] ✅ ${proxy.name} success! Converting JSON to RSS format...`)
+          return this.convertRSS2JSONToFeed(jsonData)
+        } else {
+          // XML прокси
+          const xmlText = await response.text()
+          
+          if (!xmlText || xmlText.trim().length === 0) {
+            console.warn(`[RSS Parser] ${proxy.name} returned empty response`)
+            lastError = new Error(`${proxy.name}: Empty response`)
+            continue
+          }
+          
+          console.log(`[RSS Parser] ✅ ${proxy.name} success! Received ${xmlText.length} bytes`)
+          return this.parseXML(xmlText)
+        }
+      } catch (error) {
+        console.warn(`[RSS Parser] ${proxy.name} failed:`, error)
+        lastError = error instanceof Error ? error : new Error(String(error))
+        continue
       }
-      
-      throw proxyError
     }
+
+    // Все прокси не сработали
+    console.error('[RSS Parser] All proxies failed')
+    throw new Error(
+      `Не вдалося завантажити фід навіть через проксі.\n\n` +
+      `Остання помилка: ${lastError?.message || 'Unknown'}\n\n` +
+      `Можливі причини:\n` +
+      `• Сайт блокує всі автоматичні запити\n` +
+      `• Потрібна авторизація або Cookie\n` +
+      `• Сайт недоступний\n\n` +
+      `Спробуйте інший RSS фід або зверніться до адміністратора сайту.`
+    )
+  }
+
+  // Конвертируем JSON от RSS2JSON в наш формат
+  private convertRSS2JSONToFeed(jsonData: any): RSSFeed {
+    const feed: RSSFeed = {
+      title: jsonData.feed?.title || 'RSS Feed',
+      description: jsonData.feed?.description || '',
+      items: [],
+    }
+
+    if (!jsonData.items || !Array.isArray(jsonData.items)) {
+      return feed
+    }
+
+    feed.items = jsonData.items.map((item: any) => ({
+      title: item.title || 'Без назви',
+      link: item.link || item.guid || '',
+      description: item.description || '',
+      content: item.content || item.description || '',
+      pubDate: item.pubDate || new Date().toISOString(),
+      author: item.author || jsonData.feed?.title || '',
+      guid: item.guid || item.link || '',
+      enclosure: item.enclosure?.link ? {
+        url: item.enclosure.link,
+        type: item.enclosure.type || 'image/jpeg',
+      } : (item.thumbnail ? {
+        url: item.thumbnail,
+        type: 'image/jpeg',
+      } : undefined),
+    }))
+
+    console.log(`[RSS Parser] Converted ${feed.items.length} items from RSS2JSON`)
+    return feed
   }
 
   // Парсим XML в структуру RSS
