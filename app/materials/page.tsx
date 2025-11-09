@@ -89,7 +89,9 @@ export default function MaterialsPage() {
     }
 
     try {
-      for (const id of selectedIds) {
+      const idsArray = Array.from(selectedIds)
+      
+      for (const id of idsArray) {
         if (action === 'delete') {
           await fetch(`/api/materials?id=${id}`, {
             method: 'DELETE',
@@ -101,7 +103,7 @@ export default function MaterialsPage() {
 
       await fetchMaterials(filter)
       setSelectedIds(new Set())
-      alert(`✅ Действие выполнено для ${selectedIds.size} материал(ов)`)
+      alert(`✅ Действие выполнено для ${idsArray.length} материал(ов)`)
     } catch (error) {
       console.error('Error performing bulk action:', error)
       alert('Ошибка при выполнении действия')
