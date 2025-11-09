@@ -10,6 +10,24 @@ export class DatabaseService {
   async init() {
     const client = await pool.connect()
     try {
+      // Таблица для локальных RSS фидов
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS feeds (
+          id SERIAL PRIMARY KEY,
+          url TEXT NOT NULL UNIQUE,
+          title TEXT,
+          description TEXT,
+          last_fetched TIMESTAMP,
+          status VARCHAR(50) DEFAULT 'active',
+          created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `)
+      
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_feeds_status ON feeds(status)
+      `)
+      
+      // Таблица для материалов
       await client.query(`
         CREATE TABLE IF NOT EXISTS materials (
           id VARCHAR(255) PRIMARY KEY,
@@ -177,6 +195,55 @@ export class DatabaseService {
 
   async close() {
     await pool.end()
+  }
+
+  // ========== МЕТОДЫ ДЛЯ РАБОТЫ С ФИДАМИ ==========
+  
+  async addFeed(url: string, title?: string, description?: string) {
+    const result = await pool.query(
+      `INSERT INTO feeds (url, title, description)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (url) DO UPDATE SET
+         title = COALESCE(EXCLUDED.title, feeds.title),
+         description = COALESCE(EXCLUDED.description, feeds.description)
+       RETURNING *`,
+      [url, title, description]
+    )
+    return result.rows[0]
+  }
+
+  async getAllFeeds() {
+    const result = await pool.query(
+      `SELECT id, url, title, description, last_fetched as "lastFetched", status, created_at as "createdAt"
+       FROM feeds
+       WHERE status = 'active'
+       ORDER BY created_at DESC`
+    )
+    return result.rows
+  }
+
+  async getFeedById(id: number) {
+    const result = await pool.query(
+      `SELECT id, url, title, description, last_fetched as "lastFetched", status, created_at as "createdAt"
+       FROM feeds
+       WHERE id = $1`,
+      [id]
+    )
+    return result.rows[0]
+  }
+
+  async updateFeedFetchTime(id: number) {
+    await pool.query(
+      'UPDATE feeds SET last_fetched = NOW() WHERE id = $1',
+      [id]
+    )
+  }
+
+  async deleteFeed(id: number) {
+    await pool.query(
+      'UPDATE feeds SET status = $1 WHERE id = $2',
+      ['deleted', id]
+    )
   }
 }
 

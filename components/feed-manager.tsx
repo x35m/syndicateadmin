@@ -36,7 +36,9 @@ export function FeedManager() {
   const fetchFeeds = async () => {
     try {
       setLoading(true)
-      const response = await fetch('/api/feeds')
+      
+      // Загружаем локальные фиды
+      const response = await fetch('/api/local-feeds')
       const result = await response.json()
       
       if (result.success) {
@@ -61,8 +63,8 @@ export function FeedManager() {
 
     setAdding(true)
     try {
-      console.log('🔄 Attempting to add feed:', newFeedUrl)
-      const response = await fetch('/api/feeds', {
+      console.log('🔄 Adding local RSS feed:', newFeedUrl)
+      const response = await fetch('/api/local-feeds', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ feedUrl: newFeedUrl }),
@@ -72,39 +74,26 @@ export function FeedManager() {
       console.log('📊 Add feed result:', result)
       
       if (result.success) {
-        alert('✅ Фид успешно добавлен в CommaFeed!\n\nМатериалы будут автоматически импортированы.')
+        const stats = result.data.stats
+        alert(
+          `✅ Фид успешно добавлен!\n\n` +
+          `📥 Загружено материалов: ${stats.fetched}\n` +
+          `🆕 Новых: ${stats.new}\n` +
+          `🔄 Обновлено: ${stats.updated}`
+        )
         setNewFeedUrl('')
         setIsAddDialogOpen(false)
         
         // Обновляем список фидов
         await fetchFeeds()
-        
-        // Автоматически импортируем материалы из нового фида
-        if (result.data.feedId) {
-          setTimeout(() => handleImportFeed(result.data.feedId), 1000)
-        }
       } else {
         const errorMsg = result.error || 'Неизвестная ошибка'
         console.error('❌ Add feed failed:', errorMsg)
-        
-        // Показываем понятное сообщение с инструкцией
-        alert(
-          `⚠️ Не удалось добавить фид через API\n\n` +
-          `${errorMsg}\n\n` +
-          `📝 Альтернативный способ:\n` +
-          `1. Откройте CommaFeed веб-интерфейс\n` +
-          `2. Добавьте фид вручную\n` +
-          `3. Вернитесь в админку\n` +
-          `4. Нажмите "Обновить" для загрузки фидов\n` +
-          `5. Используйте кнопку 📥 для импорта материалов`
-        )
+        alert(`❌ Ошибка: ${errorMsg}`)
       }
     } catch (error) {
       console.error('Error adding feed:', error)
-      alert(
-        '❌ Ошибка при добавлении фида\n\n' +
-        'Попробуйте добавить фид вручную через CommaFeed веб-интерфейс'
-      )
+      alert('❌ Ошибка при добавлении фида')
     } finally {
       setAdding(false)
     }
@@ -113,10 +102,10 @@ export function FeedManager() {
   const handleImportFeed = async (feedId: string) => {
     setImporting(feedId)
     try {
-      const response = await fetch('/api/feeds/import', {
+      const response = await fetch('/api/local-feeds/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ feedId, limit: 50 }),
+        body: JSON.stringify({ feedId }),
       })
       
       const result = await response.json()
@@ -129,6 +118,9 @@ export function FeedManager() {
           `🆕 Новых: ${newCount}\n` +
           `🔄 Обновлено: ${updated}`
         )
+        
+        // Обновляем список фидов (чтобы показать время последней загрузки)
+        await fetchFeeds()
       } else {
         alert(`❌ Ошибка: ${result.error}`)
       }
@@ -141,12 +133,12 @@ export function FeedManager() {
   }
 
   const handleDeleteFeed = async (feedId: string, feedName: string) => {
-    if (!confirm(`Вы уверены, что хотите отписаться от фида "${feedName}"?`)) {
+    if (!confirm(`Вы уверены, что хотите удалить фид "${feedName}"?\n\nМатериалы из этого фида останутся в базе.`)) {
       return
     }
 
     try {
-      const response = await fetch(`/api/feeds?id=${feedId}`, {
+      const response = await fetch(`/api/local-feeds?id=${feedId}`, {
         method: 'DELETE',
       })
       
@@ -169,21 +161,9 @@ export function FeedManager() {
       <CardHeader>
         <div className="flex justify-between items-center">
           <div>
-            <CardTitle>Управление фидами</CardTitle>
+            <CardTitle>Управление RSS фидами</CardTitle>
             <CardDescription>
-              Просматривайте и импортируйте материалы из ваших RSS фидов.<br />
-              <span className="text-xs text-muted-foreground mt-1 block">
-                💡 Совет: Добавляйте фиды через CommaFeed ({' '}
-                <a 
-                  href="https://organic-kangaroo.pikapod.net" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="underline hover:text-primary"
-                >
-                  открыть
-                </a>
-                {' '}), затем импортируйте их здесь кнопкой 📥
-              </span>
+              Добавляйте любые RSS/Atom фиды и импортируйте контент напрямую в админку
             </CardDescription>
           </div>
           <div className="flex gap-2">
