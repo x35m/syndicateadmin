@@ -343,6 +343,7 @@ export default function Home() {
                     <TableHead className="w-20">Обложка</TableHead>
                     <TableHead>Заголовок</TableHead>
                     <TableHead>Автор</TableHead>
+                    <TableHead>Источник</TableHead>
                     <TableHead>Дата создания</TableHead>
                     <TableHead>Статус</TableHead>
                     <TableHead>Действия</TableHead>
@@ -369,11 +370,13 @@ export default function Home() {
                       </TableCell>
                       <TableCell className="font-medium max-w-md">
                         <div className="truncate">{material.title}</div>
-                        <div className="text-xs text-muted-foreground truncate mt-1">
-                          {material.content.substring(0, 100)}...
-                        </div>
                       </TableCell>
                       <TableCell>{material.author || '—'}</TableCell>
+                      <TableCell>
+                        <div className="truncate max-w-[200px]" title={material.source}>
+                          {material.source || '—'}
+                        </div>
+                      </TableCell>
                       <TableCell>{formatDate(material.createdAt)}</TableCell>
                       <TableCell>{getStatusBadge(material.status)}</TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
