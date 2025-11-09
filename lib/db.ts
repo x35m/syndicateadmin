@@ -179,6 +179,13 @@ export class DatabaseService {
     )
   }
 
+  async deleteMaterial(id: string): Promise<void> {
+    await pool.query(
+      'DELETE FROM materials WHERE id = $1',
+      [id]
+    )
+  }
+
   async getStats() {
     const result = await pool.query(`
       SELECT 

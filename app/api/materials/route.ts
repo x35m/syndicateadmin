@@ -55,3 +55,30 @@ export async function PATCH(request: NextRequest) {
     )
   }
 }
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: 'Missing material ID' },
+        { status: 400 }
+      )
+    }
+
+    await db.deleteMaterial(id)
+
+    return NextResponse.json({
+      success: true,
+      message: 'Material deleted successfully',
+    })
+  } catch (error) {
+    console.error('API Error:', error)
+    return NextResponse.json(
+      { success: false, error: 'Failed to delete material' },
+      { status: 500 }
+    )
+  }
+}
