@@ -4,8 +4,15 @@ import { useState, useEffect } from 'react'
 import { Plus, RefreshCw, Trash2, Edit2, Check, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { 
   Dialog, 
   DialogContent, 
@@ -25,6 +32,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Label } from '@/components/ui/label'
+import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
 
 interface Feed {
@@ -37,6 +45,8 @@ interface Feed {
   unread?: number
 }
 
+type BulkFeedAction = 'update' | 'delete' | null
+
 export function FeedManager() {
   const [feeds, setFeeds] = useState<Feed[]>([])
   const [loading, setLoading] = useState(true)
@@ -46,13 +56,13 @@ export function FeedManager() {
   const [importing, setImporting] = useState<string | null>(null)
   const [editingFeedId, setEditingFeedId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
-  const [feedToDelete, setFeedToDelete] = useState<{ id: string; name: string } | null>(null)
+  const [selectedFeedIds, setSelectedFeedIds] = useState<Set<string>>(new Set())
+  const [pendingAction, setPendingAction] = useState<BulkFeedAction>(null)
 
   const fetchFeeds = async () => {
     try {
       setLoading(true)
       
-      // Загружаем локальные фиды
       const response = await fetch('/api/local-feeds')
       const result = await response.json()
       
@@ -96,7 +106,6 @@ export function FeedManager() {
         setNewFeedUrl('')
         setIsAddDialogOpen(false)
         
-        // Обновляем список фидов
         await fetchFeeds()
       } else {
         const errorMsg = result.error || 'Неизвестная ошибка'
@@ -111,7 +120,46 @@ export function FeedManager() {
     }
   }
 
-  const handleImportFeed = async (feedId: string) => {
+  const handleBulkAction = (action: BulkFeedAction) => {
+    if (selectedFeedIds.size === 0) {
+      toast.warning('Выберите фиды для обработки')
+      return
+    }
+    setPendingAction(action)
+  }
+
+  const executeBulkAction = async () => {
+    if (!pendingAction) return
+
+    const action = pendingAction
+    const idsArray = Array.from(selectedFeedIds)
+
+    try {
+      if (action === 'update') {
+        for (const id of idsArray) {
+          await handleImportFeed(id, true)
+        }
+        toast.success(`Успешно обновлено ${idsArray.length} фид(ов)`)
+      } else if (action === 'delete') {
+        for (const id of idsArray) {
+          await fetch(`/api/local-feeds?id=${id}`, {
+            method: 'DELETE',
+          })
+        }
+        toast.success(`Успешно удалено ${idsArray.length} фид(ов)`)
+        await fetchFeeds()
+      }
+
+      setSelectedFeedIds(new Set())
+    } catch (error) {
+      console.error('Error performing bulk action:', error)
+      toast.error('Ошибка при выполнении действия')
+    } finally {
+      setPendingAction(null)
+    }
+  }
+
+  const handleImportFeed = async (feedId: string, silent = false) => {
     setImporting(feedId)
     try {
       const response = await fetch('/api/local-feeds/import', {
@@ -124,44 +172,24 @@ export function FeedManager() {
       
       if (result.success) {
         const { fetched, new: newCount, updated } = result.data
-        toast.success(
-          `Импорт завершен! Загружено: ${fetched}, Новых: ${newCount}, Обновлено: ${updated}`
-        )
-        
-        // Обновляем список фидов (чтобы показать время последней загрузки)
+        if (!silent) {
+          toast.success(
+            `Импорт завершен! Загружено: ${fetched}, Новых: ${newCount}, Обновлено: ${updated}`
+          )
+        }
         await fetchFeeds()
       } else {
-        toast.error(`Ошибка: ${result.error}`)
+        if (!silent) {
+          toast.error(`Ошибка: ${result.error}`)
+        }
       }
     } catch (error) {
       console.error('Error importing feed:', error)
-      toast.error('Ошибка при импорте материалов')
+      if (!silent) {
+        toast.error('Ошибка при импорте материалов')
+      }
     } finally {
       setImporting(null)
-    }
-  }
-
-  const handleDeleteFeed = async () => {
-    if (!feedToDelete) return
-
-    try {
-      const response = await fetch(`/api/local-feeds?id=${feedToDelete.id}`, {
-        method: 'DELETE',
-      })
-      
-      const result = await response.json()
-      
-      if (result.success) {
-        toast.success('Фид успешно удален')
-        await fetchFeeds()
-      } else {
-        toast.error(`Ошибка: ${result.error}`)
-      }
-    } catch (error) {
-      console.error('Error deleting feed:', error)
-      toast.error('Ошибка при удалении фида')
-    } finally {
-      setFeedToDelete(null)
     }
   }
 
@@ -207,134 +235,233 @@ export function FeedManager() {
     }
   }
 
+  const toggleSelectAll = () => {
+    if (selectedFeedIds.size === feeds.length) {
+      setSelectedFeedIds(new Set())
+    } else {
+      setSelectedFeedIds(new Set(feeds.map(f => f.id)))
+    }
+  }
+
+  const toggleSelect = (id: string) => {
+    const newSelected = new Set(selectedFeedIds)
+    if (newSelected.has(id)) {
+      newSelected.delete(id)
+    } else {
+      newSelected.add(id)
+    }
+    setSelectedFeedIds(newSelected)
+  }
+
+  const getActionDialogContent = () => {
+    const count = selectedFeedIds.size
+    switch (pendingAction) {
+      case 'update':
+        return {
+          title: 'Обновить фиды',
+          description: `Вы уверены, что хотите обновить ${count} фид(ов)? Это может занять некоторое время.`,
+          actionText: 'Обновить',
+          variant: 'default' as const,
+        }
+      case 'delete':
+        return {
+          title: 'Удалить фиды',
+          description: `Вы уверены, что хотите удалить ${count} фид(ов)? Материалы из этих фидов останутся в базе.`,
+          actionText: 'Удалить',
+          variant: 'destructive' as const,
+        }
+      default:
+        return null
+    }
+  }
+
+  const dialogContent = getActionDialogContent()
+
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex justify-between items-center">
-          <div>
-            <CardTitle>Управление RSS фидами</CardTitle>
-            <CardDescription>
-              Добавляйте любые RSS/Atom фиды и импортируйте контент напрямую в админку
-            </CardDescription>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={fetchFeeds}
-              disabled={loading}
-            >
-              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-              Обновить
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => setIsAddDialogOpen(true)}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Добавить фид
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <div className="text-center py-8 text-muted-foreground">
-            Загрузка фидов...
-          </div>
-        ) : feeds.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
-            Фиды не найдены. Добавьте первый фид!
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {feeds.map((feed) => (
-              <div
-                key={feed.id}
-                className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent/50 transition-colors"
+    <>
+      <Card>
+        <CardHeader>
+          <div className="flex justify-between items-center">
+            <div>
+              <CardTitle>Управление RSS фидами</CardTitle>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={fetchFeeds}
+                disabled={loading}
               >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    {editingFeedId === feed.id ? (
-                      <div className="flex items-center gap-2 flex-1">
-                        <Input
-                          value={editingTitle}
-                          onChange={(e) => setEditingTitle(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              saveTitle(feed.id)
-                            } else if (e.key === 'Escape') {
-                              cancelEditing()
-                            }
-                          }}
-                          className="h-8"
-                          autoFocus
-                        />
+                <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                Обновить
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => setIsAddDialogOpen(true)}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Добавить фид
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="text-center py-8 text-muted-foreground">
+              Загрузка фидов...
+            </div>
+          ) : feeds.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              Фиды не найдены. Добавьте первый фид!
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-12">
+                    <Checkbox
+                      checked={selectedFeedIds.size === feeds.length && feeds.length > 0}
+                      onCheckedChange={toggleSelectAll}
+                    />
+                  </TableHead>
+                  <TableHead>Название источника</TableHead>
+                  <TableHead>URL</TableHead>
+                  <TableHead className="w-[120px]">Действия</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {feeds.map((feed) => (
+                  <TableRow key={feed.id}>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        checked={selectedFeedIds.has(feed.id)}
+                        onCheckedChange={() => toggleSelect(feed.id)}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {editingFeedId === feed.id ? (
+                        <div className="flex items-center gap-2">
+                          <Input
+                            value={editingTitle}
+                            onChange={(e) => setEditingTitle(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                saveTitle(feed.id)
+                              } else if (e.key === 'Escape') {
+                                cancelEditing()
+                              }
+                            }}
+                            className="h-8"
+                            autoFocus
+                          />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => saveTitle(feed.id)}
+                          >
+                            <Check className="h-4 w-4 text-green-600" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={cancelEditing}
+                          >
+                            <X className="h-4 w-4 text-red-600" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">
+                            {feed.title || feed.name || feed.feedName || 'Без названия'}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => startEditing(feed)}
+                            className="h-6 w-6 p-0"
+                            title="Редактировать название"
+                          >
+                            <Edit2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="truncate max-w-md text-muted-foreground text-sm">
+                        {feed.url || feed.feedUrl || 'URL не указан'}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex gap-1">
                         <Button
-                          variant="ghost"
+                          variant="outline"
                           size="sm"
-                          onClick={() => saveTitle(feed.id)}
+                          onClick={() => handleImportFeed(feed.id)}
+                          disabled={importing === feed.id}
+                          title="Обновить фид"
                         >
-                          <Check className="h-4 w-4 text-green-600" />
+                          <RefreshCw className={`h-4 w-4 ${importing === feed.id ? 'animate-spin' : ''}`} />
                         </Button>
                         <Button
-                          variant="ghost"
+                          variant="outline"
                           size="sm"
-                          onClick={cancelEditing}
+                          onClick={() => {
+                            setSelectedFeedIds(new Set([feed.id]))
+                            setPendingAction('delete')
+                          }}
+                          title="Удалить фид"
                         >
-                          <X className="h-4 w-4 text-red-600" />
+                          <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
-                    ) : (
-                      <>
-                        <h4 className="font-medium truncate">
-                          {feed.title || feed.name || feed.feedName || feed.url}
-                        </h4>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => startEditing(feed)}
-                          className="h-6 w-6 p-0"
-                          title="Редактировать название"
-                        >
-                          <Edit2 className="h-3 w-3" />
-                        </Button>
-                      </>
-                    )}
-                    {feed.unread !== undefined && feed.unread > 0 && (
-                      <Badge variant="secondary">{feed.unread} непрочитанных</Badge>
-                    )}
-                  </div>
-                  <p className="text-sm text-muted-foreground truncate">
-                    {feed.url || feed.feedUrl || 'URL не указан'}
-                  </p>
-                </div>
-                <div className="flex gap-1 ml-4">
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Floating Bulk Actions Panel */}
+      {selectedFeedIds.size > 0 && (
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-4 fade-in duration-300">
+          <Card className="border-primary shadow-2xl">
+            <CardContent className="py-4 px-6">
+              <div className="flex items-center gap-4">
+                <span className="text-sm font-medium">
+                  Выбрано: <span className="text-primary font-bold">{selectedFeedIds.size}</span> фид(ов)
+                </span>
+                <div className="flex gap-2">
                   <Button
-                    variant="outline"
                     size="sm"
-                    onClick={() => handleImportFeed(feed.id)}
-                    disabled={importing === feed.id}
-                    title="Обновить фид"
+                    variant="default"
+                    onClick={() => handleBulkAction('update')}
                   >
-                    <RefreshCw className={`h-4 w-4 ${importing === feed.id ? 'animate-spin' : ''}`} />
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Обновить
                   </Button>
                   <Button
-                    variant="outline"
                     size="sm"
-                    onClick={() => setFeedToDelete({ 
-                      id: feed.id, 
-                      name: feed.title || feed.name || feed.feedName || 'фид' 
-                    })}
+                    variant="destructive"
+                    onClick={() => handleBulkAction('delete')}
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Удалить
                   </Button>
                 </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setSelectedFeedIds(new Set())}
+                >
+                  Отменить
+                </Button>
               </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Диалог добавления нового фида */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
@@ -389,28 +516,26 @@ export function FeedManager() {
         </DialogContent>
       </Dialog>
 
-      {/* Диалог подтверждения удаления */}
-      <AlertDialog open={feedToDelete !== null} onOpenChange={(open) => !open && setFeedToDelete(null)}>
+      {/* Confirmation Dialog for Bulk Actions */}
+      <AlertDialog open={pendingAction !== null} onOpenChange={(open) => !open && setPendingAction(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Удалить RSS фид</AlertDialogTitle>
+            <AlertDialogTitle>{dialogContent?.title}</AlertDialogTitle>
             <AlertDialogDescription>
-              Вы уверены, что хотите удалить фид "{feedToDelete?.name}"?
-              <br /><br />
-              <strong>Материалы из этого фида останутся в базе.</strong>
+              {dialogContent?.description}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Отмена</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleDeleteFeed}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={executeBulkAction}
+              className={dialogContent?.variant === 'destructive' ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : ''}
             >
-              Удалить
+              {dialogContent?.actionText}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Card>
+    </>
   )
 }

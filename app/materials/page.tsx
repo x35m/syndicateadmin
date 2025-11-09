@@ -361,10 +361,9 @@ export default function MaterialsPage() {
                         <TableHead className="w-20">Обложка</TableHead>
                         <TableHead className="min-w-[300px]">Заголовок</TableHead>
                         <TableHead>Автор</TableHead>
-                        <TableHead>Источник</TableHead>
+                        <TableHead>Название источника</TableHead>
                         <TableHead className="w-[130px]">Дата</TableHead>
                         <TableHead>Статус</TableHead>
-                        <TableHead>Действия</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -405,37 +404,6 @@ export default function MaterialsPage() {
                           </TableCell>
                           <TableCell onClick={() => openMaterialDialog(material)}>{formatDate(material.createdAt)}</TableCell>
                           <TableCell onClick={() => openMaterialDialog(material)}>{getStatusBadge(material.status)}</TableCell>
-                          <TableCell onClick={(e) => e.stopPropagation()}>
-                            <div className="flex gap-2">
-                              {material.status === 'new' && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleStatusChange(material.id, 'processed')}
-                                >
-                                  Опубликовать
-                                </Button>
-                              )}
-                              {material.status === 'processed' && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleStatusChange(material.id, 'archived')}
-                                >
-                                  В архив
-                                </Button>
-                              )}
-                              {material.status === 'archived' && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleStatusChange(material.id, 'new')}
-                                >
-                                  Вернуть
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
