@@ -19,6 +19,7 @@ import { Label } from '@/components/ui/label'
 interface Feed {
   id: string
   name: string
+  title?: string
   feedName?: string
   url: string
   feedUrl?: string
