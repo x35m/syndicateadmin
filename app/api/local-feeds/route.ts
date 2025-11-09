@@ -44,10 +44,30 @@ export async function POST(request: Request) {
       feedInfo = await rssParser.parseFeed(feedUrl)
     } catch (parseError) {
       console.error('[Local Feeds] Failed to parse feed:', parseError)
+      
+      let errorMessage = 'Не удалось загрузить или распарсить RSS фид.'
+      
+      if (parseError instanceof Error) {
+        // Показываем более детальную ошибку
+        errorMessage = parseError.message
+      }
+      
       return NextResponse.json(
         { 
           success: false, 
-          error: 'Не удалось загрузить или распарсить RSS фид. Проверьте URL и убедитесь что это валидный RSS/Atom фид.'
+          error: errorMessage
+        },
+        { status: 400 }
+      )
+    }
+    
+    // Проверяем что в фиде есть материалы
+    if (!feedInfo.items || feedInfo.items.length === 0) {
+      console.warn('[Local Feeds] Feed has no items:', feedInfo)
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'RSS фід успішно завантажений, але не містить жодних матеріалів. Це може бути порожній фід.'
         },
         { status: 400 }
       )

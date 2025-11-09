@@ -28,18 +28,41 @@ export class RSSParser {
     try {
       const response = await fetch(url, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; MaterialAdmin/1.0)',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/rss+xml, application/xml, application/atom+xml, text/xml, */*',
+          'Accept-Language': 'uk-UA,uk;q=0.9,en;q=0.8,ru;q=0.7',
+          'Cache-Control': 'no-cache',
         },
       })
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch feed: ${response.status} ${response.statusText}`)
+        console.error(`[RSS Parser] HTTP ${response.status}: ${response.statusText}`)
+        throw new Error(`Не вдалося завантажити фід: HTTP ${response.status} - ${response.statusText}`)
       }
 
       const xmlText = await response.text()
+      
+      if (!xmlText || xmlText.trim().length === 0) {
+        throw new Error('Фід порожній або не містить даних')
+      }
+      
+      console.log(`[RSS Parser] Received ${xmlText.length} bytes of XML`)
+      
       return this.parseXML(xmlText)
     } catch (error) {
       console.error('[RSS Parser] Error:', error)
+      
+      if (error instanceof Error) {
+        // Более понятные сообщения об ошибках
+        if (error.message.includes('fetch failed') || error.message.includes('ENOTFOUND')) {
+          throw new Error('Не вдалося підключитися до сайту. Перевірте URL або спробуйте пізніше.')
+        } else if (error.message.includes('ECONNREFUSED')) {
+          throw new Error('З\'єднання відхилено. Сайт може бути недоступний.')
+        } else if (error.message.includes('certificate')) {
+          throw new Error('Помилка SSL сертифіката. Сайт може мати проблеми з безпекою.')
+        }
+      }
+      
       throw error
     }
   }
@@ -55,6 +78,9 @@ export class RSSParser {
     // Простой парсинг XML (без библиотек)
     // Определяем тип фида: RSS или Atom
     const isAtom = xmlText.includes('<feed') && xmlText.includes('xmlns="http://www.w3.org/2005/Atom"')
+    
+    console.log(`[RSS Parser] Detected feed type: ${isAtom ? 'Atom' : 'RSS'}`)
+    console.log(`[RSS Parser] XML sample: ${xmlText.substring(0, 500)}...`)
 
     if (isAtom) {
       return this.parseAtom(xmlText)
@@ -100,6 +126,13 @@ export class RSSParser {
     }
 
     console.log(`[RSS Parser] Parsed ${feed.items.length} items from RSS feed`)
+    
+    if (feed.items.length === 0) {
+      console.warn('[RSS Parser] WARNING: No items found in RSS feed')
+      console.warn('[RSS Parser] Feed title:', feed.title)
+      console.warn('[RSS Parser] Feed description:', feed.description)
+    }
+    
     return feed
   }
 
