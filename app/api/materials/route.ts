@@ -5,20 +5,26 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status')
-    const limit = parseInt(searchParams.get('limit') || '100')
-    const offset = parseInt(searchParams.get('offset') || '0')
 
     let materials
-    if (status) {
+    if (status && status !== 'all') {
       materials = await db.getMaterialsByStatus(status)
     } else {
-      materials = await db.getAllMaterials(limit, offset)
+      materials = await db.getAllMaterials()
     }
 
+    // Получаем статистику по статусам
+    const stats = await db.getStats()
+    
     return NextResponse.json({
       success: true,
       data: materials,
-      count: materials.length,
+      stats: {
+        total: parseInt(stats.total || '0'),
+        new: parseInt(stats.new_count || '0'),
+        processed: parseInt(stats.processed_count || '0'),
+        archived: parseInt(stats.archived_count || '0'),
+      },
     })
   } catch (error) {
     console.error('API Error:', error)

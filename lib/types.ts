@@ -8,6 +8,7 @@ export interface Material {
   createdAt: string
   fetchedAt: string
   source: string
+  feedName?: string // Название фида-источника
   status: 'new' | 'processed' | 'archived'
 }
 

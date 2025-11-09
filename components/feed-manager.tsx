@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react'
 import { Plus, RefreshCw, Trash2, Edit2, Check, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Table,
   TableBody,
@@ -47,7 +48,11 @@ interface Feed {
 
 type BulkFeedAction = 'update' | 'delete' | null
 
-export function FeedManager() {
+interface FeedManagerProps {
+  lastSync: string | null
+}
+
+export function FeedManager({ lastSync }: FeedManagerProps) {
   const [feeds, setFeeds] = useState<Feed[]>([])
   const [loading, setLoading] = useState(true)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
@@ -277,6 +282,17 @@ export function FeedManager() {
 
   const dialogContent = getActionDialogContent()
 
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return 'Никогда'
+    const date = new Date(dateString)
+    const day = String(date.getDate()).padStart(2, '0')
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const year = String(date.getFullYear()).slice(-2)
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    return `${day}.${month}.${year} ${hours}:${minutes}`
+  }
+
   return (
     <>
       <Card>
@@ -284,31 +300,32 @@ export function FeedManager() {
           <div className="flex justify-between items-center">
             <div>
               <CardTitle>Управление RSS фидами</CardTitle>
+              <CardDescription className="mt-1">
+                Последняя синхронизация: {formatDate(lastSync)}
+              </CardDescription>
             </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={fetchFeeds}
-                disabled={loading}
-              >
-                <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-                Обновить
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => setIsAddDialogOpen(true)}
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Добавить фид
-              </Button>
-            </div>
+            <Button
+              size="sm"
+              onClick={() => setIsAddDialogOpen(true)}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Добавить фид
+            </Button>
           </div>
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="text-center py-8 text-muted-foreground">
-              Загрузка фидов...
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center space-x-4">
+                  <Skeleton className="h-12 w-12" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-3 w-3/4" />
+                  </div>
+                  <Skeleton className="h-8 w-24" />
+                </div>
+              ))}
             </div>
           ) : feeds.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">

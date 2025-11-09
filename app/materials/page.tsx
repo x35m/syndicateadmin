@@ -32,11 +32,19 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Skeleton } from '@/components/ui/skeleton'
 import { ExternalLink, Trash2, Archive, CheckCircle } from 'lucide-react'
 import { Header } from '@/components/header'
 import { toast } from 'sonner'
 
 type BulkAction = 'published' | 'archived' | 'delete' | null
+
+interface MaterialsStats {
+  total: number
+  new: number
+  processed: number
+  archived: number
+}
 
 export default function MaterialsPage() {
   const [materials, setMaterials] = useState<Material[]>([])
@@ -45,9 +53,8 @@ export default function MaterialsPage() {
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [itemsPerPage, setItemsPerPage] = useState(25)
-  const [currentPage, setCurrentPage] = useState(1)
   const [pendingAction, setPendingAction] = useState<BulkAction>(null)
+  const [stats, setStats] = useState<MaterialsStats>({ total: 0, new: 0, processed: 0, archived: 0 })
 
   const fetchMaterials = async (status: string = 'all') => {
     try {
@@ -60,7 +67,7 @@ export default function MaterialsPage() {
 
       if (result.success) {
         setMaterials(result.data)
-        setCurrentPage(1)
+        setStats(result.stats || { total: 0, new: 0, processed: 0, archived: 0 })
       }
     } catch (error) {
       console.error('Error fetching materials:', error)
@@ -143,10 +150,10 @@ export default function MaterialsPage() {
   }
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === paginatedMaterials.length) {
+    if (selectedIds.size === materials.length) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(paginatedMaterials.map(m => m.id)))
+      setSelectedIds(new Set(materials.map(m => m.id)))
     }
   }
 
@@ -231,12 +238,6 @@ export default function MaterialsPage() {
 
   const dialogContent = getActionDialogContent()
 
-  // Pagination
-  const totalPages = Math.ceil(materials.length / itemsPerPage)
-  const startIndex = (currentPage - 1) * itemsPerPage
-  const endIndex = startIndex + itemsPerPage
-  const paginatedMaterials = materials.slice(startIndex, endIndex)
-
   return (
     <>
       <Header />
@@ -246,38 +247,20 @@ export default function MaterialsPage() {
           <div className="flex justify-between items-center">
             <Tabs value={filter} onValueChange={handleFilterChange}>
               <TabsList>
-                <TabsTrigger value="all">Все</TabsTrigger>
-                <TabsTrigger value="new">Новые</TabsTrigger>
-                <TabsTrigger value="processed">Опубликованные</TabsTrigger>
-                <TabsTrigger value="archived">Архив</TabsTrigger>
+                <TabsTrigger value="all">
+                  Все {stats.total > 0 && <span className="ml-1.5 text-xs">({stats.total})</span>}
+                </TabsTrigger>
+                <TabsTrigger value="new">
+                  Новые {stats.new > 0 && <span className="ml-1.5 text-xs">({stats.new})</span>}
+                </TabsTrigger>
+                <TabsTrigger value="processed">
+                  Опубликованные {stats.processed > 0 && <span className="ml-1.5 text-xs">({stats.processed})</span>}
+                </TabsTrigger>
+                <TabsTrigger value="archived">
+                  Архив {stats.archived > 0 && <span className="ml-1.5 text-xs">({stats.archived})</span>}
+                </TabsTrigger>
               </TabsList>
             </Tabs>
-
-            {/* Pagination Controls */}
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Показать:</span>
-              <Button
-                variant={itemsPerPage === 25 ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => { setItemsPerPage(25); setCurrentPage(1); }}
-              >
-                25
-              </Button>
-              <Button
-                variant={itemsPerPage === 50 ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => { setItemsPerPage(50); setCurrentPage(1); }}
-              >
-                50
-              </Button>
-              <Button
-                variant={itemsPerPage === 100 ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => { setItemsPerPage(100); setCurrentPage(1); }}
-              >
-                100
-              </Button>
-            </div>
           </div>
 
           {/* Floating Bulk Actions Panel */}
@@ -331,135 +314,88 @@ export default function MaterialsPage() {
           {/* Materials Table */}
           <Card>
             <CardHeader>
-              <CardTitle>
-                Материалы ({materials.length})
-                {totalPages > 1 && (
-                  <span className="text-muted-foreground font-normal ml-2">
-                    — Страница {currentPage} из {totalPages}
-                  </span>
-                )}
-              </CardTitle>
+              <CardTitle>Материалы ({materials.length})</CardTitle>
             </CardHeader>
             <CardContent>
               {loading ? (
-                <div className="text-center py-8">Загрузка данных...</div>
+                <div className="space-y-2">
+                  {Array.from({ length: 10 }).map((_, i) => (
+                    <div key={i} className="flex items-center space-x-4">
+                      <Skeleton className="h-12 w-12" />
+                      <Skeleton className="h-16 w-16 rounded" />
+                      <div className="flex-1 space-y-2">
+                        <Skeleton className="h-4 w-full" />
+                        <Skeleton className="h-4 w-3/4" />
+                      </div>
+                      <Skeleton className="h-8 w-24" />
+                      <Skeleton className="h-8 w-20" />
+                    </div>
+                  ))}
+                </div>
               ) : materials.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   Нет материалов. Добавьте RSS фиды и синхронизируйте их на главной.
                 </div>
               ) : (
-                <>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-12">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-12">
+                        <Checkbox
+                          checked={selectedIds.size === materials.length && materials.length > 0}
+                          onCheckedChange={toggleSelectAll}
+                        />
+                      </TableHead>
+                      <TableHead className="w-20">Обложка</TableHead>
+                      <TableHead className="min-w-[300px]">Заголовок</TableHead>
+                      <TableHead>Автор</TableHead>
+                      <TableHead>Название источника</TableHead>
+                      <TableHead className="w-[130px]">Дата</TableHead>
+                      <TableHead>Статус</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {materials.map((material) => (
+                      <TableRow key={material.id} className="cursor-pointer hover:bg-accent/50">
+                        <TableCell onClick={(e) => e.stopPropagation()}>
                           <Checkbox
-                            checked={selectedIds.size === paginatedMaterials.length && paginatedMaterials.length > 0}
-                            onCheckedChange={toggleSelectAll}
+                            checked={selectedIds.has(material.id)}
+                            onCheckedChange={() => toggleSelect(material.id)}
                           />
-                        </TableHead>
-                        <TableHead className="w-20">Обложка</TableHead>
-                        <TableHead className="min-w-[300px]">Заголовок</TableHead>
-                        <TableHead>Автор</TableHead>
-                        <TableHead>Название источника</TableHead>
-                        <TableHead className="w-[130px]">Дата</TableHead>
-                        <TableHead>Статус</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {paginatedMaterials.map((material) => (
-                        <TableRow key={material.id} className="cursor-pointer hover:bg-accent/50">
-                          <TableCell onClick={(e) => e.stopPropagation()}>
-                            <Checkbox
-                              checked={selectedIds.has(material.id)}
-                              onCheckedChange={() => toggleSelect(material.id)}
+                        </TableCell>
+                        <TableCell onClick={() => openMaterialDialog(material)}>
+                          {material.thumbnail ? (
+                            <img 
+                              src={material.thumbnail} 
+                              alt={material.title}
+                              className="w-16 h-16 object-cover rounded"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none'
+                              }}
                             />
-                          </TableCell>
-                          <TableCell onClick={() => openMaterialDialog(material)}>
-                            {material.thumbnail ? (
-                              <img 
-                                src={material.thumbnail} 
-                                alt={material.title}
-                                className="w-16 h-16 object-cover rounded"
-                                onError={(e) => {
-                                  e.currentTarget.style.display = 'none'
-                                }}
-                              />
-                            ) : (
-                              <div className="w-16 h-16 bg-muted rounded flex items-center justify-center text-xs text-muted-foreground">
-                                Нет фото
-                              </div>
-                            )}
-                          </TableCell>
-                          <TableCell className="font-medium" onClick={() => openMaterialDialog(material)}>
-                            <div className="line-clamp-3 leading-snug">
-                              {material.title}
+                          ) : (
+                            <div className="w-16 h-16 bg-muted rounded flex items-center justify-center text-xs text-muted-foreground">
+                              Нет фото
                             </div>
-                          </TableCell>
-                          <TableCell onClick={() => openMaterialDialog(material)}>{material.author || '—'}</TableCell>
-                          <TableCell onClick={() => openMaterialDialog(material)}>
-                            <div className="truncate max-w-[200px]" title={material.source}>
-                              {material.source || '—'}
-                            </div>
-                          </TableCell>
-                          <TableCell onClick={() => openMaterialDialog(material)}>{formatDate(material.createdAt)}</TableCell>
-                          <TableCell onClick={() => openMaterialDialog(material)}>{getStatusBadge(material.status)}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-
-                  {/* Pagination Navigation */}
-                  {totalPages > 1 && (
-                    <div className="flex items-center justify-between mt-4">
-                      <div className="text-sm text-muted-foreground">
-                        Показано {startIndex + 1}-{Math.min(endIndex, materials.length)} из {materials.length}
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                          disabled={currentPage === 1}
-                        >
-                          ← Назад
-                        </Button>
-                        <div className="flex items-center gap-1">
-                          {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                            let pageNum
-                            if (totalPages <= 5) {
-                              pageNum = i + 1
-                            } else if (currentPage <= 3) {
-                              pageNum = i + 1
-                            } else if (currentPage >= totalPages - 2) {
-                              pageNum = totalPages - 4 + i
-                            } else {
-                              pageNum = currentPage - 2 + i
-                            }
-                            return (
-                              <Button
-                                key={pageNum}
-                                variant={currentPage === pageNum ? 'default' : 'outline'}
-                                size="sm"
-                                onClick={() => setCurrentPage(pageNum)}
-                              >
-                                {pageNum}
-                              </Button>
-                            )
-                          })}
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                          disabled={currentPage === totalPages}
-                        >
-                          Вперед →
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </>
+                          )}
+                        </TableCell>
+                        <TableCell className="font-medium" onClick={() => openMaterialDialog(material)}>
+                          <div className="line-clamp-3 leading-snug">
+                            {material.title}
+                          </div>
+                        </TableCell>
+                        <TableCell onClick={() => openMaterialDialog(material)}>{material.author || '—'}</TableCell>
+                        <TableCell onClick={() => openMaterialDialog(material)}>
+                          <div className="truncate max-w-[200px]" title={material.feedName || material.source}>
+                            {material.feedName || material.source || '—'}
+                          </div>
+                        </TableCell>
+                        <TableCell onClick={() => openMaterialDialog(material)}>{formatDate(material.createdAt)}</TableCell>
+                        <TableCell onClick={() => openMaterialDialog(material)}>{getStatusBadge(material.status)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               )}
             </CardContent>
           </Card>
@@ -498,7 +434,7 @@ export default function MaterialsPage() {
                       <strong>Автор:</strong> {selectedMaterial?.author || '—'}
                     </span>
                     <span>
-                      <strong>Источник:</strong> {selectedMaterial?.source || '—'}
+                      <strong>Источник:</strong> {selectedMaterial?.feedName || selectedMaterial?.source || '—'}
                     </span>
                     <span>
                       <strong>Дата:</strong> {selectedMaterial && formatDate(selectedMaterial.createdAt)}

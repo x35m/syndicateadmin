@@ -142,16 +142,16 @@ export class DatabaseService {
     }
   }
 
-  async getAllMaterials(limit = 100, offset = 0): Promise<Material[]> {
+  async getAllMaterials(): Promise<Material[]> {
     const result = await pool.query(
-      `SELECT id, title, content, full_content as "fullContent", thumbnail, author, 
-              created_at as "createdAt", 
-              fetched_at as "fetchedAt", 
-              source, status
-       FROM materials
-       ORDER BY created_at DESC
-       LIMIT $1 OFFSET $2`,
-      [limit, offset]
+      `SELECT m.id, m.title, m.content, m.full_content as "fullContent", m.thumbnail, m.author, 
+              m.created_at as "createdAt", 
+              m.fetched_at as "fetchedAt", 
+              m.source, m.status,
+              f.title as "feedName"
+       FROM materials m
+       LEFT JOIN feeds f ON m.source = f.url
+       ORDER BY m.created_at DESC`
     )
 
     return result.rows
@@ -159,13 +159,15 @@ export class DatabaseService {
 
   async getMaterialsByStatus(status: string): Promise<Material[]> {
     const result = await pool.query(
-      `SELECT id, title, content, full_content as "fullContent", thumbnail, author, 
-              created_at as "createdAt", 
-              fetched_at as "fetchedAt", 
-              source, status
-       FROM materials
-       WHERE status = $1
-       ORDER BY created_at DESC`,
+      `SELECT m.id, m.title, m.content, m.full_content as "fullContent", m.thumbnail, m.author, 
+              m.created_at as "createdAt", 
+              m.fetched_at as "fetchedAt", 
+              m.source, m.status,
+              f.title as "feedName"
+       FROM materials m
+       LEFT JOIN feeds f ON m.source = f.url
+       WHERE m.status = $1
+       ORDER BY m.created_at DESC`,
       [status]
     )
 

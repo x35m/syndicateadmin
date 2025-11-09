@@ -151,7 +151,7 @@ export default function Home() {
         )}
 
         {/* Feed Manager */}
-        <FeedManager />
+          <FeedManager lastSync={stats?.lastFetch || null} />
         </div>
       </div>
     </>
