@@ -83,7 +83,7 @@ export default function Home() {
     <>
       <Header />
       <div className="min-h-screen bg-background p-8">
-        <div className="max-w-7xl mx-auto space-y-8">
+        <div className="container space-y-8">
 
         {/* Stats Cards */}
         {stats && (

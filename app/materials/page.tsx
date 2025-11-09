@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Material } from '@/lib/types'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Table,
   TableBody,
@@ -20,10 +20,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ExternalLink, Trash2, Archive, CheckCircle } from 'lucide-react'
 import { Header } from '@/components/header'
+
+type BulkAction = 'published' | 'archived' | 'delete' | null
 
 export default function MaterialsPage() {
   const [materials, setMaterials] = useState<Material[]>([])
@@ -34,6 +46,9 @@ export default function MaterialsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [itemsPerPage, setItemsPerPage] = useState(25)
   const [currentPage, setCurrentPage] = useState(1)
+  const [pendingAction, setPendingAction] = useState<BulkAction>(null)
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false)
+  const [successMessage, setSuccessMessage] = useState('')
 
   const fetchMaterials = async (status: string = 'all') => {
     try {
@@ -72,25 +87,22 @@ export default function MaterialsPage() {
     }
   }
 
-  const handleBulkAction = async (action: 'published' | 'archived' | 'delete') => {
+  const handleBulkActionClick = (action: BulkAction) => {
     if (selectedIds.size === 0) {
-      alert('Выберите материалы для обработки')
+      setSuccessMessage('Выберите материалы для обработки')
+      setShowSuccessDialog(true)
       return
     }
+    setPendingAction(action)
+  }
 
-    const confirmMessages = {
-      published: `Опубликовать ${selectedIds.size} материал(ов)?`,
-      archived: `Архивировать ${selectedIds.size} материал(ов)?`,
-      delete: `Удалить ${selectedIds.size} материал(ов)? Это действие необратимо!`,
-    }
+  const executeBulkAction = async () => {
+    if (!pendingAction) return
 
-    if (!confirm(confirmMessages[action])) {
-      return
-    }
+    const action = pendingAction
+    const idsArray = Array.from(selectedIds)
 
     try {
-      const idsArray = Array.from(selectedIds)
-      
       for (const id of idsArray) {
         if (action === 'delete') {
           await fetch(`/api/materials?id=${id}`, {
@@ -103,10 +115,21 @@ export default function MaterialsPage() {
 
       await fetchMaterials(filter)
       setSelectedIds(new Set())
-      alert(`✅ Действие выполнено для ${idsArray.length} материал(ов)`)
+      
+      const actionNames = {
+        published: 'опубликовано',
+        archived: 'архивировано',
+        delete: 'удалено',
+      }
+      
+      setSuccessMessage(`✅ Успешно ${actionNames[action]} ${idsArray.length} материал(ов)`)
+      setShowSuccessDialog(true)
     } catch (error) {
       console.error('Error performing bulk action:', error)
-      alert('Ошибка при выполнении действия')
+      setSuccessMessage('❌ Ошибка при выполнении действия')
+      setShowSuccessDialog(true)
+    } finally {
+      setPendingAction(null)
     }
   }
 
@@ -175,6 +198,37 @@ export default function MaterialsPage() {
       .replace(/on\w+='[^']*'/g, '')
   }
 
+  const getActionDialogContent = () => {
+    const count = selectedIds.size
+    switch (pendingAction) {
+      case 'published':
+        return {
+          title: 'Опубликовать материалы',
+          description: `Вы уверены, что хотите опубликовать ${count} материал(ов)?`,
+          actionText: 'Опубликовать',
+          variant: 'default' as const,
+        }
+      case 'archived':
+        return {
+          title: 'Архивировать материалы',
+          description: `Вы уверены, что хотите архивировать ${count} материал(ов)?`,
+          actionText: 'Архивировать',
+          variant: 'default' as const,
+        }
+      case 'delete':
+        return {
+          title: 'Удалить материалы',
+          description: `Вы уверены, что хотите удалить ${count} материал(ов)? Это действие необратимо!`,
+          actionText: 'Удалить',
+          variant: 'destructive' as const,
+        }
+      default:
+        return null
+    }
+  }
+
+  const dialogContent = getActionDialogContent()
+
   // Pagination
   const totalPages = Math.ceil(materials.length / itemsPerPage)
   const startIndex = (currentPage - 1) * itemsPerPage
@@ -185,7 +239,7 @@ export default function MaterialsPage() {
     <>
       <Header />
       <div className="min-h-screen bg-background p-8">
-        <div className="max-w-7xl mx-auto space-y-6">
+        <div className="container space-y-6">
           {/* Header with Tabs */}
           <div className="flex justify-between items-center">
             <Tabs value={filter} onValueChange={handleFilterChange}>
@@ -236,7 +290,7 @@ export default function MaterialsPage() {
                     <Button
                       size="sm"
                       variant="default"
-                      onClick={() => handleBulkAction('published')}
+                      onClick={() => handleBulkActionClick('published')}
                     >
                       <CheckCircle className="mr-2 h-4 w-4" />
                       Опубликовать
@@ -244,7 +298,7 @@ export default function MaterialsPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => handleBulkAction('archived')}
+                      onClick={() => handleBulkActionClick('archived')}
                     >
                       <Archive className="mr-2 h-4 w-4" />
                       Архивировать
@@ -252,7 +306,7 @@ export default function MaterialsPage() {
                     <Button
                       size="sm"
                       variant="destructive"
-                      onClick={() => handleBulkAction('delete')}
+                      onClick={() => handleBulkActionClick('delete')}
                     >
                       <Trash2 className="mr-2 h-4 w-4" />
                       Удалить
@@ -280,7 +334,7 @@ export default function MaterialsPage() {
                 <div className="text-center py-8">Загрузка данных...</div>
               ) : materials.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
-                  Нет материалов. Добавьте RSS фиды и нажмите "Синхронизировать" на главной.
+                  Нет материалов. Добавьте RSS фиды и синхронизируйте их на главной.
                 </div>
               ) : (
                 <>
@@ -428,6 +482,42 @@ export default function MaterialsPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Confirmation Dialog for Bulk Actions */}
+          <AlertDialog open={pendingAction !== null} onOpenChange={(open) => !open && setPendingAction(null)}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{dialogContent?.title}</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {dialogContent?.description}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Отмена</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={executeBulkAction}
+                  className={dialogContent?.variant === 'destructive' ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : ''}
+                >
+                  {dialogContent?.actionText}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          {/* Success Dialog */}
+          <AlertDialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Уведомление</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {successMessage}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogAction>OK</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           {/* Material Details Dialog */}
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
