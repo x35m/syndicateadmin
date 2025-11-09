@@ -109,30 +109,6 @@ export default function Home() {
     }
   }
 
-  const handleDebugFeeds = async () => {
-    try {
-      console.log('🔍 Fetching feeds debug info...')
-      const response = await fetch('/api/debug-feeds')
-      const result = await response.json()
-      
-      if (result.success) {
-        console.log('📡 CommaFeed Feeds:', result.data)
-        alert(
-          `📡 Информация о фидах в CommaFeed:\n\n` +
-          `Всего фидов: ${result.data.totalFeeds}\n\n` +
-          result.data.feeds.map((f: any) => 
-            `• ${f.name}\n  ID: ${f.id}\n  Материалов (тест): ${f.totalMaterials}`
-          ).join('\n\n')
-        )
-      } else {
-        alert(`Ошибка: ${result.error}`)
-      }
-    } catch (error) {
-      console.error('Error fetching debug feeds:', error)
-      alert('Ошибка при получении информации о фидах')
-    }
-  }
-
   const handleStatusChange = async (id: string, newStatus: string) => {
     try {
       const response = await fetch('/api/materials', {
@@ -218,26 +194,17 @@ export default function Home() {
           <div>
             <h1 className="text-4xl font-bold tracking-tight">Material Admin</h1>
             <p className="text-muted-foreground mt-2">
-              Управление материалами из API
+              Управление материалами из RSS фидов
             </p>
           </div>
-          <div className="flex gap-2">
-            <Button 
-              onClick={handleDebugFeeds} 
-              variant="outline"
-              size="lg"
-            >
-              🔍 Debug Feeds
-            </Button>
-            <Button 
-              onClick={handleSync} 
-              disabled={syncing}
-              size="lg"
-            >
-              <RefreshCw className={`mr-2 h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
-              {syncing ? 'Синхронизация...' : 'Синхронизировать'}
-            </Button>
-          </div>
+          <Button 
+            onClick={handleSync} 
+            disabled={syncing}
+            size="lg"
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? 'Синхронизация...' : 'Синхронизировать'}
+          </Button>
         </div>
 
         {/* Stats Cards */}

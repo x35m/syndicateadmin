@@ -1,5 +1,4 @@
 import cron from 'node-cron'
-import { apiService } from './api-service'
 import { db } from './db'
 import { rssParser } from './rss-parser'
 
@@ -12,7 +11,7 @@ export async function fetchAndSaveMaterials() {
   }
 
   isRunning = true
-  console.log(`[${new Date().toISOString()}] Starting intelligent synchronization...`)
+  console.log(`[${new Date().toISOString()}] Starting RSS synchronization...`)
 
   try {
     let totalFetched = 0
@@ -20,53 +19,40 @@ export async function fetchAndSaveMaterials() {
     let totalUpdated = 0
     let totalErrors = 0
 
-    // 1. Синхронизируем CommaFeed фиды (если API ключ настроен)
-    if (process.env.API_KEY && process.env.API_BASE_URL) {
+    // Синхронизируем RSS фиды
+    const feeds = await db.getAllFeeds()
+    
+    if (feeds.length === 0) {
+      console.log(`[${new Date().toISOString()}] No RSS feeds configured. Add feeds via admin panel.`)
+      return { 
+        fetched: 0, 
+        new: 0, 
+        updated: 0,
+        errors: 0 
+      }
+    }
+    
+    console.log(`[${new Date().toISOString()}] Syncing ${feeds.length} RSS feeds...`)
+    
+    for (const feed of feeds) {
       try {
-        console.log(`[${new Date().toISOString()}] Syncing CommaFeed...`)
-        const materials = await apiService.fetchNewMaterials()
+        console.log(`[${new Date().toISOString()}] Fetching ${feed.title || feed.url}...`)
+        const feedData = await rssParser.parseFeed(feed.url)
+        const materials = rssParser.convertToMaterials(feed.title || feedData.title, feed.url, feedData.items)
         const stats = await db.saveMaterials(materials)
+        
+        await db.updateFeedFetchTime(feed.id)
         
         totalFetched += materials.length
         totalNew += stats.new
         totalUpdated += stats.updated
         totalErrors += stats.errors
         
-        console.log(`[${new Date().toISOString()}] CommaFeed: ${materials.length} fetched, ${stats.new} new, ${stats.updated} updated`)
-      } catch (error) {
-        console.error('Error syncing CommaFeed:', error)
+        console.log(`[${new Date().toISOString()}] ${feed.title}: ${materials.length} fetched, ${stats.new} new, ${stats.updated} updated`)
+      } catch (feedError) {
+        console.error(`[${new Date().toISOString()}] Error syncing feed ${feed.title}:`, feedError)
+        totalErrors++
       }
-    }
-
-    // 2. Синхронизируем локальные RSS фиды
-    try {
-      console.log(`[${new Date().toISOString()}] Syncing local RSS feeds...`)
-      const localFeeds = await db.getAllFeeds()
-      
-      for (const feed of localFeeds) {
-        try {
-          console.log(`[${new Date().toISOString()}] Fetching ${feed.title || feed.url}...`)
-          const feedData = await rssParser.parseFeed(feed.url)
-          const materials = rssParser.convertToMaterials(feed.title || feedData.title, feed.url, feedData.items)
-          const stats = await db.saveMaterials(materials)
-          
-          await db.updateFeedFetchTime(feed.id)
-          
-          totalFetched += materials.length
-          totalNew += stats.new
-          totalUpdated += stats.updated
-          totalErrors += stats.errors
-          
-          console.log(`[${new Date().toISOString()}] ${feed.title}: ${materials.length} fetched, ${stats.new} new, ${stats.updated} updated`)
-        } catch (feedError) {
-          console.error(`[${new Date().toISOString()}] Error syncing feed ${feed.title}:`, feedError)
-          totalErrors++
-        }
-      }
-      
-      console.log(`[${new Date().toISOString()}] Synced ${localFeeds.length} local feeds`)
-    } catch (error) {
-      console.error('Error syncing local feeds:', error)
     }
     
     console.log(`[${new Date().toISOString()}] ✅ Sync completed:`)
