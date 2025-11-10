@@ -55,6 +55,8 @@ export default function MaterialsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [pendingAction, setPendingAction] = useState<BulkAction>(null)
   const [stats, setStats] = useState<MaterialsStats>({ total: 0, new: 0, processed: 0, archived: 0 })
+  const [itemsPerPage, setItemsPerPage] = useState(25)
+  const [currentPage, setCurrentPage] = useState(1)
 
   const fetchMaterials = async (status: string = 'all') => {
     try {
@@ -138,6 +140,7 @@ export default function MaterialsPage() {
 
   const handleFilterChange = async (value: string) => {
     setFilter(value)
+    setCurrentPage(1)
     setLoading(true)
     await fetchMaterials(value)
     setLoading(false)
@@ -150,10 +153,15 @@ export default function MaterialsPage() {
   }
 
   const toggleSelectAll = () => {
-    if (selectedIds.size === materials.length) {
+    const paginatedMaterialsForToggle = materials.slice(
+      (currentPage - 1) * itemsPerPage,
+      currentPage * itemsPerPage
+    )
+    
+    if (selectedIds.size === paginatedMaterialsForToggle.length) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(materials.map(m => m.id)))
+      setSelectedIds(new Set(paginatedMaterialsForToggle.map(m => m.id)))
     }
   }
 
@@ -237,6 +245,12 @@ export default function MaterialsPage() {
   }
 
   const dialogContent = getActionDialogContent()
+
+  // Pagination calculations
+  const totalPages = Math.ceil(materials.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedMaterials = materials.slice(startIndex, endIndex)
 
   return (
     <>
@@ -355,7 +369,7 @@ export default function MaterialsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {materials.map((material) => (
+                    {paginatedMaterials.map((material) => (
                       <TableRow key={material.id} className="cursor-pointer hover:bg-accent/50">
                         <TableCell onClick={(e) => e.stopPropagation()}>
                           <Checkbox
@@ -396,6 +410,52 @@ export default function MaterialsPage() {
                     ))}
                   </TableBody>
                 </Table>
+
+                {/* Pagination Controls */}
+                {!loading && materials.length > 0 && (
+                  <div className="flex items-center justify-between px-6 py-4 border-t">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">Показывать:</span>
+                      <select
+                        value={itemsPerPage}
+                        onChange={(e) => {
+                          setItemsPerPage(Number(e.target.value))
+                          setCurrentPage(1)
+                        }}
+                        className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value={25}>25</option>
+                        <option value={50}>50</option>
+                        <option value={100}>100</option>
+                      </select>
+                      <span className="text-sm text-muted-foreground">
+                        Показано {startIndex + 1}-{Math.min(endIndex, materials.length)} из {materials.length}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(currentPage - 1)}
+                        disabled={currentPage === 1}
+                      >
+                        ← Назад
+                      </Button>
+                      <span className="text-sm text-muted-foreground">
+                        Страница {currentPage} из {totalPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(currentPage + 1)}
+                        disabled={currentPage === totalPages}
+                      >
+                        Вперёд →
+                      </Button>
+                    </div>
+                  </div>
+                )}
               )}
             </CardContent>
           </Card>
