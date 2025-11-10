@@ -55,8 +55,6 @@ export default function MaterialsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [pendingAction, setPendingAction] = useState<BulkAction>(null)
   const [stats, setStats] = useState<MaterialsStats>({ total: 0, new: 0, processed: 0, archived: 0 })
-  const [itemsPerPage, setItemsPerPage] = useState(25)
-  const [currentPage, setCurrentPage] = useState(1)
 
   const fetchMaterials = async (status: string = 'all') => {
     try {
@@ -152,15 +150,10 @@ export default function MaterialsPage() {
   }
 
   const toggleSelectAll = () => {
-    const paginatedMaterials = materials.slice(
-      (currentPage - 1) * itemsPerPage,
-      currentPage * itemsPerPage
-    )
-    
-    if (selectedIds.size === paginatedMaterials.length) {
+    if (selectedIds.size === materials.length) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(paginatedMaterials.map(m => m.id)))
+      setSelectedIds(new Set(materials.map(m => m.id)))
     }
   }
 
@@ -245,14 +238,8 @@ export default function MaterialsPage() {
 
   const dialogContent = getActionDialogContent()
 
-  // Pagination calculations
-  const totalPages = Math.ceil(materials.length / itemsPerPage)
-  const startIndex = (currentPage - 1) * itemsPerPage
-  const endIndex = startIndex + itemsPerPage
-  const paginatedMaterials = materials.slice(startIndex, endIndex)
-
   return (
-    <div>
+    <>
       <Header />
       <div className="min-h-screen bg-background p-8">
         <div className="container space-y-6">
@@ -274,18 +261,6 @@ export default function MaterialsPage() {
                 </TabsTrigger>
               </TabsList>
             </Tabs>
-
-            {/* Pagination Size Tabs */}
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Показать:</span>
-              <Tabs value={String(itemsPerPage)} onValueChange={(v) => { setItemsPerPage(Number(v)); setCurrentPage(1); }}>
-                <TabsList>
-                  <TabsTrigger value="25">25</TabsTrigger>
-                  <TabsTrigger value="50">50</TabsTrigger>
-                  <TabsTrigger value="100">100</TabsTrigger>
-                </TabsList>
-              </Tabs>
-            </div>
           </div>
 
           {/* Floating Bulk Actions Panel */}
@@ -367,7 +342,7 @@ export default function MaterialsPage() {
                     <TableRow>
                       <TableHead className="w-12">
                         <Checkbox
-                          checked={selectedIds.size === paginatedMaterials.length && paginatedMaterials.length > 0}
+                          checked={selectedIds.size === materials.length && materials.length > 0}
                           onCheckedChange={toggleSelectAll}
                         />
                       </TableHead>
@@ -380,7 +355,7 @@ export default function MaterialsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {paginatedMaterials.map((material) => (
+                    {materials.map((material) => (
                       <TableRow key={material.id} className="cursor-pointer hover:bg-accent/50">
                         <TableCell onClick={(e) => e.stopPropagation()}>
                           <Checkbox
@@ -421,57 +396,6 @@ export default function MaterialsPage() {
                     ))}
                   </TableBody>
                 </Table>
-                
-                {/* Pagination Navigation */}
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                    <div className="text-sm text-muted-foreground">
-                      Показано {startIndex + 1}-{Math.min(endIndex, materials.length)} из {materials.length}
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                        disabled={currentPage === 1}
-                      >
-                        ← Назад
-                      </Button>
-                      <div className="flex items-center gap-1">
-                        {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                          let pageNum
-                          if (totalPages <= 5) {
-                            pageNum = i + 1
-                          } else if (currentPage <= 3) {
-                            pageNum = i + 1
-                          } else if (currentPage >= totalPages - 2) {
-                            pageNum = totalPages - 4 + i
-                          } else {
-                            pageNum = currentPage - 2 + i
-                          }
-                          return (
-                            <Button
-                              key={pageNum}
-                              variant={currentPage === pageNum ? 'default' : 'outline'}
-                              size="sm"
-                              onClick={() => setCurrentPage(pageNum)}
-                            >
-                              {pageNum}
-                            </Button>
-                          )
-                        })}
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                        disabled={currentPage === totalPages}
-                      >
-                        Вперед →
-                      </Button>
-                    </div>
-                  </div>
-                )}
               )}
             </CardContent>
           </Card>
@@ -549,6 +473,6 @@ export default function MaterialsPage() {
           </Dialog>
         </div>
       </div>
-    </div>
+    </>
   )
 }
