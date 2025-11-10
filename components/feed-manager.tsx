@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, RefreshCw, Trash2, Edit2, Check, X } from 'lucide-react'
+import { Plus, RefreshCw, Trash2, Edit2, Check, X, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -63,6 +63,8 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
   const [editingTitle, setEditingTitle] = useState('')
   const [selectedFeedIds, setSelectedFeedIds] = useState<Set<string>>(new Set())
   const [pendingAction, setPendingAction] = useState<BulkFeedAction>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
 
   const fetchFeeds = async () => {
     try {
@@ -240,11 +242,32 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
     }
   }
 
+  // Pagination logic
+  const totalPages = Math.ceil(feeds.length / pageSize)
+  const startIndex = (currentPage - 1) * pageSize
+  const endIndex = startIndex + pageSize
+  const paginatedFeeds = feeds.slice(startIndex, endIndex)
+
+  const goToPage = (page: number) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)))
+  }
+
+  const changePageSize = (newSize: number) => {
+    setPageSize(newSize)
+    setCurrentPage(1) // Reset to first page when changing page size
+  }
+
   const toggleSelectAll = () => {
-    if (selectedFeedIds.size === feeds.length) {
-      setSelectedFeedIds(new Set())
+    if (selectedFeedIds.size === paginatedFeeds.length && paginatedFeeds.length > 0) {
+      // Deselect all on current page
+      const newSelected = new Set(selectedFeedIds)
+      paginatedFeeds.forEach((f: Feed) => newSelected.delete(f.id))
+      setSelectedFeedIds(newSelected)
     } else {
-      setSelectedFeedIds(new Set(feeds.map(f => f.id)))
+      // Select all on current page
+      const newSelected = new Set(selectedFeedIds)
+      paginatedFeeds.forEach((f: Feed) => newSelected.add(f.id))
+      setSelectedFeedIds(newSelected)
     }
   }
 
@@ -337,7 +360,7 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
                 <TableRow>
                   <TableHead className="w-12">
                     <Checkbox
-                      checked={selectedFeedIds.size === feeds.length && feeds.length > 0}
+                      checked={paginatedFeeds.length > 0 && paginatedFeeds.every((f: Feed) => selectedFeedIds.has(f.id))}
                       onCheckedChange={toggleSelectAll}
                     />
                   </TableHead>
@@ -347,7 +370,7 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {feeds.map((feed) => (
+                {paginatedFeeds.map((feed) => (
                   <TableRow key={feed.id}>
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <Checkbox
@@ -436,6 +459,86 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
                 ))}
               </TableBody>
             </Table>
+          )}
+
+          {/* Pagination Controls */}
+          {!loading && feeds.length > 0 && (
+            <div className="flex items-center justify-between mt-4 pt-4 border-t">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">
+                  Показано {startIndex + 1}-{Math.min(endIndex, feeds.length)} из {feeds.length}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-4">
+                {/* Page Size Selector */}
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">На странице:</span>
+                  <div className="flex gap-1">
+                    {[25, 50, 100, 200].map((size) => (
+                      <Button
+                        key={size}
+                        variant={pageSize === size ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => changePageSize(size)}
+                        className="h-8 w-12"
+                      >
+                        {size}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Page Navigation */}
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => goToPage(1)}
+                    disabled={currentPage === 1}
+                    className="h-8 w-8 p-0"
+                    title="Первая страница"
+                  >
+                    <ChevronsLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => goToPage(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className="h-8 w-8 p-0"
+                    title="Предыдущая страница"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <div className="flex items-center gap-1 px-2">
+                    <span className="text-sm font-medium">{currentPage}</span>
+                    <span className="text-sm text-muted-foreground">из</span>
+                    <span className="text-sm font-medium">{totalPages}</span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => goToPage(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    className="h-8 w-8 p-0"
+                    title="Следующая страница"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => goToPage(totalPages)}
+                    disabled={currentPage === totalPages}
+                    className="h-8 w-8 p-0"
+                    title="Последняя страница"
+                  >
+                    <ChevronsRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>
