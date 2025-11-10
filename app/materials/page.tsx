@@ -312,8 +312,10 @@ export default function MaterialsPage() {
         }
       case 'generate-summary':
         return {
-          title: 'Сгенерировать саммари',
-          description: `Вы уверены, что хотите сгенерировать саммари для ${count} материал(ов)? Это займёт некоторое время и потребует API ключ Gemini.`,
+          title: 'Генерация саммари',
+          description: count === 1 
+            ? 'Сгенерировать саммари для этого материала?' 
+            : `Сгенерировать саммари для ${count} материалов?`,
           actionText: 'Сгенерировать',
           variant: 'default' as const,
         }
