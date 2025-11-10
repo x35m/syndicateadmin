@@ -252,7 +252,7 @@ export default function MaterialsPage() {
   const paginatedMaterials = materials.slice(startIndex, endIndex)
 
   return (
-    <>
+    <div>
       <Header />
       <div className="min-h-screen bg-background p-8">
         <div className="container space-y-6">
@@ -549,6 +549,6 @@ export default function MaterialsPage() {
           </Dialog>
         </div>
       </div>
-    </>
+    </div>
   )
 }
