@@ -33,7 +33,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ExternalLink, Trash2, Archive, CheckCircle } from 'lucide-react'
+import { ExternalLink, Trash2, Archive, CheckCircle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import { Header } from '@/components/header'
 import { toast } from 'sonner'
 
@@ -55,6 +55,8 @@ export default function MaterialsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [pendingAction, setPendingAction] = useState<BulkAction>(null)
   const [stats, setStats] = useState<MaterialsStats>({ total: 0, new: 0, processed: 0, archived: 0 })
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
 
   const fetchMaterials = async (status: string = 'all') => {
     try {
@@ -142,6 +144,7 @@ export default function MaterialsPage() {
     await fetchMaterials(value)
     setLoading(false)
     setSelectedIds(new Set())
+    setCurrentPage(1)
   }
 
   const openMaterialDialog = (material: Material) => {
@@ -149,11 +152,32 @@ export default function MaterialsPage() {
     setIsDialogOpen(true)
   }
 
+  // Pagination logic
+  const totalPages = Math.ceil(materials.length / pageSize)
+  const startIndex = (currentPage - 1) * pageSize
+  const endIndex = startIndex + pageSize
+  const paginatedMaterials = materials.slice(startIndex, endIndex)
+
+  const goToPage = (page: number) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)))
+  }
+
+  const changePageSize = (newSize: number) => {
+    setPageSize(newSize)
+    setCurrentPage(1)
+  }
+
   const toggleSelectAll = () => {
-    if (selectedIds.size === materials.length) {
-      setSelectedIds(new Set())
+    if (selectedIds.size === paginatedMaterials.length && paginatedMaterials.length > 0) {
+      // Deselect all on current page
+      const newSelected = new Set(selectedIds)
+      paginatedMaterials.forEach((m: Material) => newSelected.delete(m.id))
+      setSelectedIds(newSelected)
     } else {
-      setSelectedIds(new Set(materials.map(m => m.id)))
+      // Select all on current page
+      const newSelected = new Set(selectedIds)
+      paginatedMaterials.forEach((m: Material) => newSelected.add(m.id))
+      setSelectedIds(newSelected)
     }
   }
 
@@ -342,7 +366,7 @@ export default function MaterialsPage() {
                     <TableRow>
                       <TableHead className="w-12">
                         <Checkbox
-                          checked={selectedIds.size === materials.length && materials.length > 0}
+                          checked={paginatedMaterials.length > 0 && paginatedMaterials.every((m: Material) => selectedIds.has(m.id))}
                           onCheckedChange={toggleSelectAll}
                         />
                       </TableHead>
@@ -355,7 +379,7 @@ export default function MaterialsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {materials.map((material) => (
+                    {paginatedMaterials.map((material) => (
                       <TableRow key={material.id} className="cursor-pointer hover:bg-accent/50">
                         <TableCell onClick={(e) => e.stopPropagation()}>
                           <Checkbox
@@ -396,6 +420,86 @@ export default function MaterialsPage() {
                     ))}
                   </TableBody>
                 </Table>
+              )}
+
+              {/* Pagination Controls */}
+              {!loading && materials.length > 0 && (
+                <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground">
+                      Показано {startIndex + 1}-{Math.min(endIndex, materials.length)} из {materials.length}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-4">
+                    {/* Page Size Selector */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">На странице:</span>
+                      <div className="flex gap-1">
+                        {[25, 50, 100, 200].map((size) => (
+                          <Button
+                            key={size}
+                            variant={pageSize === size ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => changePageSize(size)}
+                            className="h-8 w-12"
+                          >
+                            {size}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Page Navigation */}
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => goToPage(1)}
+                        disabled={currentPage === 1}
+                        className="h-8 w-8 p-0"
+                        title="Первая страница"
+                      >
+                        <ChevronsLeft className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => goToPage(currentPage - 1)}
+                        disabled={currentPage === 1}
+                        className="h-8 w-8 p-0"
+                        title="Предыдущая страница"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+                      <div className="flex items-center gap-1 px-2">
+                        <span className="text-sm font-medium">{currentPage}</span>
+                        <span className="text-sm text-muted-foreground">из</span>
+                        <span className="text-sm font-medium">{totalPages}</span>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => goToPage(currentPage + 1)}
+                        disabled={currentPage === totalPages}
+                        className="h-8 w-8 p-0"
+                        title="Следующая страница"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => goToPage(totalPages)}
+                        disabled={currentPage === totalPages}
+                        className="h-8 w-8 p-0"
+                        title="Последняя страница"
+                      >
+                        <ChevronsRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
               )}
             </CardContent>
           </Card>
