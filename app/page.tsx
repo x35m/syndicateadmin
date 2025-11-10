@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ExternalLink, X, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter } from 'lucide-react'
+import { ExternalLink, X, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 import {
   Dialog,
@@ -91,13 +91,6 @@ export default function PublicMaterialsPage() {
     return `${day}.${month}.${year} ${hours}:${minutes}`
   }
 
-  const getSanitizedHtml = (html: string) => {
-    return html
-      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-      .replace(/on\w+="[^"]*"/g, '')
-      .replace(/on\w+='[^']*'/g, '')
-  }
-
   // Pagination
   const totalPages = Math.ceil(materials.length / pageSize)
   const startIndex = (currentPage - 1) * pageSize
@@ -117,16 +110,11 @@ export default function PublicMaterialsPage() {
     <>
       {/* Header */}
       <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container flex h-16 items-center justify-between">
+        <div className="container flex h-16 items-center">
           <Link href="/" className="flex items-center space-x-2">
             <span className="text-xl font-bold tracking-tight">
               SYNDICATE
             </span>
-          </Link>
-          <Link href="/admin/login">
-            <Button variant="ghost" size="sm">
-              Админ-панель
-            </Button>
           </Link>
         </div>
       </header>
@@ -440,18 +428,19 @@ export default function PublicMaterialsPage() {
               </div>
             </DialogDescription>
           </DialogHeader>
-          <div className="mt-4">
-            {selectedMaterial?.fullContent ? (
-              <div 
-                className="prose prose-sm max-w-none dark:prose-invert"
-                dangerouslySetInnerHTML={{ 
-                  __html: getSanitizedHtml(selectedMaterial.fullContent) 
-                }}
-              />
-            ) : (
-              <p className="text-muted-foreground">{selectedMaterial?.content}</p>
-            )}
-          </div>
+          
+          {selectedMaterial?.summary && (
+            <div className="mt-4 p-4 bg-primary/5 border border-primary/20 rounded-lg">
+              <div className="flex items-center gap-2 mb-3">
+                <Sparkles className="h-5 w-5 text-primary" />
+                <span className="text-sm font-semibold text-primary">AI Саммари</span>
+              </div>
+              <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+                {selectedMaterial.summary}
+              </p>
+            </div>
+          )}
+          
           {selectedMaterial?.source && (
             <div className="mt-4 pt-4 border-t">
               <Button variant="outline" size="sm" asChild>
