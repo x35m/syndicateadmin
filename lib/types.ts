@@ -10,6 +10,7 @@ export interface Material {
   source: string
   feedName?: string // Название фида-источника
   status: 'new' | 'processed' | 'archived'
+  summary?: string // AI-генерированное саммари статьи
 }
 
 export interface ApiConfig {

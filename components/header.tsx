@@ -10,6 +10,7 @@ export function Header() {
   const navItems = [
     { href: '/', label: 'Дашборд' },
     { href: '/materials', label: 'Материалы' },
+    { href: '/settings', label: 'Настройки' },
   ]
 
   return (

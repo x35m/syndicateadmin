@@ -61,6 +61,13 @@ export class DatabaseService {
           ) THEN
             ALTER TABLE materials ADD COLUMN thumbnail TEXT;
           END IF;
+          
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'materials' AND column_name = 'summary'
+          ) THEN
+            ALTER TABLE materials ADD COLUMN summary TEXT;
+          END IF;
         END $$;
       `)
       
@@ -70,6 +77,16 @@ export class DatabaseService {
       
       await client.query(`
         CREATE INDEX IF NOT EXISTS idx_materials_created_at ON materials(created_at DESC)
+      `)
+      
+      // Таблица для настроек
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS settings (
+          id SERIAL PRIMARY KEY,
+          key VARCHAR(255) NOT NULL UNIQUE,
+          value TEXT,
+          updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
       `)
       
       console.log('Database initialized successfully')
@@ -147,7 +164,7 @@ export class DatabaseService {
       `SELECT m.id, m.title, m.content, m.full_content as "fullContent", m.thumbnail, m.author, 
               m.created_at as "createdAt", 
               m.fetched_at as "fetchedAt", 
-              m.source, m.status,
+              m.source, m.status, m.summary,
               f.title as "feedName"
        FROM materials m
        LEFT JOIN feeds f ON m.source = f.url
@@ -162,7 +179,7 @@ export class DatabaseService {
       `SELECT m.id, m.title, m.content, m.full_content as "fullContent", m.thumbnail, m.author, 
               m.created_at as "createdAt", 
               m.fetched_at as "fetchedAt", 
-              m.source, m.status,
+              m.source, m.status, m.summary,
               f.title as "feedName"
        FROM materials m
        LEFT JOIN feeds f ON m.source = f.url
@@ -260,6 +277,50 @@ export class DatabaseService {
       'UPDATE feeds SET status = $1 WHERE id = $2',
       ['deleted', id]
     )
+  }
+
+  // Settings methods
+  async getSetting(key: string): Promise<string | null> {
+    const result = await pool.query(
+      'SELECT value FROM settings WHERE key = $1',
+      [key]
+    )
+    return result.rows[0]?.value || null
+  }
+
+  async setSetting(key: string, value: string): Promise<void> {
+    await pool.query(
+      `INSERT INTO settings (key, value, updated_at) 
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (key) 
+       DO UPDATE SET value = $2, updated_at = NOW()`,
+      [key, value]
+    )
+  }
+
+  async getSettings(): Promise<Record<string, string>> {
+    const result = await pool.query('SELECT key, value FROM settings')
+    const settings: Record<string, string> = {}
+    result.rows.forEach(row => {
+      settings[row.key] = row.value
+    })
+    return settings
+  }
+
+  // Material summary methods
+  async updateMaterialSummary(id: string, summary: string): Promise<void> {
+    await pool.query(
+      'UPDATE materials SET summary = $1 WHERE id = $2',
+      [summary, id]
+    )
+  }
+
+  async getMaterialSummary(id: string): Promise<string | null> {
+    const result = await pool.query(
+      'SELECT summary FROM materials WHERE id = $1',
+      [id]
+    )
+    return result.rows[0]?.summary || null
   }
 }
 

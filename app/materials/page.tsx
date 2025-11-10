@@ -33,11 +33,11 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ExternalLink, Trash2, Archive, CheckCircle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { ExternalLink, Trash2, Archive, CheckCircle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Sparkles } from 'lucide-react'
 import { Header } from '@/components/header'
 import { toast } from 'sonner'
 
-type BulkAction = 'published' | 'archived' | 'delete' | null
+type BulkAction = 'published' | 'archived' | 'delete' | 'generate-summary' | null
 
 interface MaterialsStats {
   total: number
@@ -57,6 +57,7 @@ export default function MaterialsPage() {
   const [stats, setStats] = useState<MaterialsStats>({ total: 0, new: 0, processed: 0, archived: 0 })
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
+  const [generatingSummary, setGeneratingSummary] = useState<Set<string>>(new Set())
 
   const fetchMaterials = async (status: string = 'all') => {
     try {
@@ -110,26 +111,71 @@ export default function MaterialsPage() {
     const idsArray = Array.from(selectedIds)
 
     try {
-      for (const id of idsArray) {
-        if (action === 'delete') {
-          await fetch(`/api/materials?id=${id}`, {
-            method: 'DELETE',
-          })
-        } else {
-          await handleStatusChange(id, action === 'published' ? 'processed' : 'archived')
+      if (action === 'generate-summary') {
+        // Генерация саммари для выбранных материалов
+        let successCount = 0
+        let errorCount = 0
+        
+        for (const id of idsArray) {
+          setGeneratingSummary(prev => new Set(prev).add(id))
+          
+          try {
+            const response = await fetch('/api/materials/generate-summary', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ materialId: id }),
+            })
+            
+            const result = await response.json()
+            
+            if (result.success) {
+              successCount++
+            } else {
+              errorCount++
+              console.error(`Failed to generate summary for ${id}:`, result.error)
+            }
+          } catch (err) {
+            errorCount++
+            console.error(`Error generating summary for ${id}:`, err)
+          } finally {
+            setGeneratingSummary(prev => {
+              const newSet = new Set(prev)
+              newSet.delete(id)
+              return newSet
+            })
+          }
         }
-      }
+        
+        await fetchMaterials(filter)
+        setSelectedIds(new Set())
+        
+        if (errorCount === 0) {
+          toast.success(`Саммари успешно сгенерировано для ${successCount} материал(ов)`)
+        } else {
+          toast.warning(`Успешно: ${successCount}, Ошибки: ${errorCount}`)
+        }
+      } else {
+        for (const id of idsArray) {
+          if (action === 'delete') {
+            await fetch(`/api/materials?id=${id}`, {
+              method: 'DELETE',
+            })
+          } else {
+            await handleStatusChange(id, action === 'published' ? 'processed' : 'archived')
+          }
+        }
 
-      await fetchMaterials(filter)
-      setSelectedIds(new Set())
-      
-      const actionNames = {
-        published: 'опубликовано',
-        archived: 'архивировано',
-        delete: 'удалено',
+        await fetchMaterials(filter)
+        setSelectedIds(new Set())
+        
+        const actionNames = {
+          published: 'опубликовано',
+          archived: 'архивировано',
+          delete: 'удалено',
+        }
+        
+        toast.success(`Успешно ${actionNames[action]} ${idsArray.length} материал(ов)`)
       }
-      
-      toast.success(`Успешно ${actionNames[action]} ${idsArray.length} материал(ов)`)
     } catch (error) {
       console.error('Error performing bulk action:', error)
       toast.error('Ошибка при выполнении действия')
@@ -255,6 +301,13 @@ export default function MaterialsPage() {
           actionText: 'Удалить',
           variant: 'destructive' as const,
         }
+      case 'generate-summary':
+        return {
+          title: 'Сгенерировать саммари',
+          description: `Вы уверены, что хотите сгенерировать саммари для ${count} материал(ов)? Это займёт некоторое время и потребует API ключ Gemini.`,
+          actionText: 'Сгенерировать',
+          variant: 'default' as const,
+        }
       default:
         return null
     }
@@ -304,6 +357,14 @@ export default function MaterialsPage() {
                       >
                         <CheckCircle className="mr-2 h-4 w-4" />
                         Опубликовать
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => handleBulkActionClick('generate-summary')}
+                      >
+                        <Sparkles className="mr-2 h-4 w-4" />
+                        Саммари
                       </Button>
                       <Button
                         size="sm"
@@ -626,6 +687,20 @@ export default function MaterialsPage() {
                   </div>
                 </DialogDescription>
               </DialogHeader>
+              
+              {/* AI Summary */}
+              {selectedMaterial?.summary && (
+                <div className="mt-4 p-4 bg-primary/5 border border-primary/20 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Sparkles className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-semibold text-primary">Саммари (AI)</span>
+                  </div>
+                  <p className="text-sm text-foreground leading-relaxed">
+                    {selectedMaterial.summary}
+                  </p>
+                </div>
+              )}
+
               <div className="mt-4">
                 {selectedMaterial?.fullContent ? (
                   <div 
