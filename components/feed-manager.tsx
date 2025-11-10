@@ -337,6 +337,86 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
           </div>
         </CardHeader>
         <CardContent>
+          {/* Pagination Controls - Top */}
+          {!loading && feeds.length > 0 && (
+            <div className="flex items-center justify-between mb-4 pb-4 border-b">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">
+                  Показано {startIndex + 1}-{Math.min(endIndex, feeds.length)} из {feeds.length}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-4">
+                {/* Page Size Selector */}
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">На странице:</span>
+                  <div className="flex gap-1">
+                    {[25, 50, 100, 200].map((size) => (
+                      <Button
+                        key={size}
+                        variant={pageSize === size ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => changePageSize(size)}
+                        className="h-8 w-12"
+                      >
+                        {size}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Page Navigation */}
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => goToPage(1)}
+                    disabled={currentPage === 1}
+                    className="h-8 w-8 p-0"
+                    title="Первая страница"
+                  >
+                    <ChevronsLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => goToPage(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className="h-8 w-8 p-0"
+                    title="Предыдущая страница"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <div className="flex items-center gap-1 px-2">
+                    <span className="text-sm font-medium">{currentPage}</span>
+                    <span className="text-sm text-muted-foreground">из</span>
+                    <span className="text-sm font-medium">{totalPages}</span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => goToPage(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    className="h-8 w-8 p-0"
+                    title="Следующая страница"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => goToPage(totalPages)}
+                    disabled={currentPage === totalPages}
+                    className="h-8 w-8 p-0"
+                    title="Последняя страница"
+                  >
+                    <ChevronsRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {loading ? (
             <div className="space-y-2">
               {Array.from({ length: 5 }).map((_, i) => (
