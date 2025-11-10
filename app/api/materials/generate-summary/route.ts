@@ -50,9 +50,9 @@ export async function POST(request: Request) {
     
     console.log(`Generating summary for material ${materialId}. Content length: ${contentToAnalyze.length}`)
 
-    // Вызываем Gemini API
+    // Вызываем Gemini API (используем gemini-1.5-flash - быстрая и эффективная модель)
     const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${geminiApiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`,
       {
         method: 'POST',
         headers: {
