@@ -115,6 +115,7 @@ export default function MaterialsPage() {
         // Генерация саммари для выбранных материалов
         let successCount = 0
         let errorCount = 0
+        let firstError = ''
         
         for (const id of idsArray) {
           setGeneratingSummary(prev => new Set(prev).add(id))
@@ -132,10 +133,16 @@ export default function MaterialsPage() {
               successCount++
             } else {
               errorCount++
+              if (!firstError) {
+                firstError = result.error
+              }
               console.error(`Failed to generate summary for ${id}:`, result.error)
             }
           } catch (err) {
             errorCount++
+            if (!firstError) {
+              firstError = err instanceof Error ? err.message : 'Неизвестная ошибка'
+            }
             console.error(`Error generating summary for ${id}:`, err)
           } finally {
             setGeneratingSummary(prev => {
@@ -151,8 +158,10 @@ export default function MaterialsPage() {
         
         if (errorCount === 0) {
           toast.success(`Саммари успешно сгенерировано для ${successCount} материал(ов)`)
+        } else if (successCount === 0) {
+          toast.error(`Ошибка: ${firstError}`)
         } else {
-          toast.warning(`Успешно: ${successCount}, Ошибки: ${errorCount}`)
+          toast.warning(`Успешно: ${successCount}, Ошибки: ${errorCount}. ${firstError}`)
         }
       } else {
         for (const id of idsArray) {
