@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ExternalLink, X, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter, Sparkles } from 'lucide-react'
+import { ExternalLink, X, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Filter } from 'lucide-react'
 import Link from 'next/link'
 import {
   Dialog,
@@ -30,7 +30,7 @@ export default function PublicMaterialsPage() {
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(25)
+  const pageSize = 25
 
   useEffect(() => {
     fetchMaterials()
@@ -99,11 +99,6 @@ export default function PublicMaterialsPage() {
 
   const goToPage = (page: number) => {
     setCurrentPage(Math.max(1, Math.min(page, totalPages)))
-  }
-
-  const changePageSize = (newSize: number) => {
-    setPageSize(newSize)
-    setCurrentPage(1)
   }
 
   return (
@@ -192,82 +187,6 @@ export default function PublicMaterialsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {/* Pagination - Top */}
-              {!loading && materials.length > 0 && (
-                <div className="flex items-center justify-between mb-4 pb-4 border-b">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">
-                      Показано {startIndex + 1}-{Math.min(endIndex, materials.length)} из {materials.length}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-4">
-                    {/* Page Size Selector */}
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">На странице:</span>
-                      <div className="flex gap-1">
-                        {[25, 50, 100, 200].map((size) => (
-                          <Button
-                            key={size}
-                            variant={pageSize === size ? 'default' : 'outline'}
-                            size="sm"
-                            onClick={() => changePageSize(size)}
-                            className="h-8 w-12"
-                          >
-                            {size}
-                          </Button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Page Navigation */}
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => goToPage(1)}
-                        disabled={currentPage === 1}
-                        className="h-8 w-8 p-0"
-                      >
-                        <ChevronsLeft className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => goToPage(currentPage - 1)}
-                        disabled={currentPage === 1}
-                        className="h-8 w-8 p-0"
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </Button>
-                      <div className="flex items-center gap-1 px-2">
-                        <span className="text-sm font-medium">{currentPage}</span>
-                        <span className="text-sm text-muted-foreground">из</span>
-                        <span className="text-sm font-medium">{totalPages}</span>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => goToPage(currentPage + 1)}
-                        disabled={currentPage === totalPages}
-                        className="h-8 w-8 p-0"
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => goToPage(totalPages)}
-                        disabled={currentPage === totalPages}
-                        className="h-8 w-8 p-0"
-                      >
-                        <ChevronsRight className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {loading ? (
                 <div className="space-y-4">
                   {Array.from({ length: 5 }).map((_, i) => (
@@ -300,26 +219,15 @@ export default function PublicMaterialsPage() {
                             <img 
                               src={material.thumbnail} 
                               alt={material.title}
-                              className="w-32 h-32 object-cover rounded"
+                              className="w-16 h-16 object-cover rounded"
                             />
                           )}
                           <div className="flex-1">
                             <h3 className="text-xl font-semibold mb-2 line-clamp-2">
                               {material.title}
                             </h3>
-                            <p className="text-muted-foreground text-sm line-clamp-2 mb-4">
-                              {material.content}
-                            </p>
-                            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                              <span>{material.feedName || material.source}</span>
-                              <span>•</span>
-                              <span>{formatDate(material.createdAt)}</span>
-                              {material.author && (
-                                <>
-                                  <span>•</span>
-                                  <span>{material.author}</span>
-                                </>
-                              )}
+                            <div className="text-sm text-muted-foreground">
+                              {material.feedName || material.source}
                             </div>
                           </div>
                         </div>
@@ -331,74 +239,53 @@ export default function PublicMaterialsPage() {
 
               {/* Pagination - Bottom */}
               {!loading && materials.length > 0 && (
-                <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">
-                      Показано {startIndex + 1}-{Math.min(endIndex, materials.length)} из {materials.length}
-                    </span>
-                  </div>
+                <div className="flex items-center justify-between mt-4">
+                  <span className="text-sm text-muted-foreground">
+                    Показано {startIndex + 1}-{Math.min(endIndex, materials.length)} из {materials.length}
+                  </span>
 
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">На странице:</span>
-                      <div className="flex gap-1">
-                        {[25, 50, 100, 200].map((size) => (
-                          <Button
-                            key={size}
-                            variant={pageSize === size ? 'default' : 'outline'}
-                            size="sm"
-                            onClick={() => changePageSize(size)}
-                            className="h-8 w-12"
-                          >
-                            {size}
-                          </Button>
-                        ))}
-                      </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => goToPage(1)}
+                      disabled={currentPage === 1 || totalPages <= 1}
+                      className="h-8 w-8 p-0"
+                    >
+                      <ChevronsLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => goToPage(currentPage - 1)}
+                      disabled={currentPage === 1 || totalPages <= 1}
+                      className="h-8 w-8 p-0"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <div className="flex items-center gap-1 px-2">
+                      <span className="text-sm font-medium">{totalPages > 0 ? currentPage : 0}</span>
+                      <span className="text-sm text-muted-foreground">из</span>
+                      <span className="text-sm font-medium">{totalPages}</span>
                     </div>
-
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => goToPage(1)}
-                        disabled={currentPage === 1}
-                        className="h-8 w-8 p-0"
-                      >
-                        <ChevronsLeft className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => goToPage(currentPage - 1)}
-                        disabled={currentPage === 1}
-                        className="h-8 w-8 p-0"
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </Button>
-                      <div className="flex items-center gap-1 px-2">
-                        <span className="text-sm font-medium">{currentPage}</span>
-                        <span className="text-sm text-muted-foreground">из</span>
-                        <span className="text-sm font-medium">{totalPages}</span>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => goToPage(currentPage + 1)}
-                        disabled={currentPage === totalPages}
-                        className="h-8 w-8 p-0"
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => goToPage(totalPages)}
-                        disabled={currentPage === totalPages}
-                        className="h-8 w-8 p-0"
-                      >
-                        <ChevronsRight className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => goToPage(currentPage + 1)}
+                      disabled={currentPage === totalPages || totalPages <= 1}
+                      className="h-8 w-8 p-0"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => goToPage(totalPages)}
+                      disabled={currentPage === totalPages || totalPages <= 1}
+                      className="h-8 w-8 p-0"
+                    >
+                      <ChevronsRight className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
               )}
@@ -430,22 +317,16 @@ export default function PublicMaterialsPage() {
           </DialogHeader>
           
           {selectedMaterial?.summary && (
-            <div className="mt-4 p-4 bg-primary/5 border border-primary/20 rounded-lg">
-              <div className="flex items-center gap-2 mb-3">
-                <Sparkles className="h-5 w-5 text-primary" />
-                <span className="text-sm font-semibold text-primary">AI Саммари</span>
-              </div>
-              <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
-                {selectedMaterial.summary}
-              </p>
+            <div className="mt-4 text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+              {selectedMaterial.summary}
             </div>
           )}
           
-          {selectedMaterial?.source && (
+          {(selectedMaterial?.link || selectedMaterial?.source) && (
             <div className="mt-4 pt-4 border-t">
               <Button variant="outline" size="sm" asChild>
                 <a 
-                  href={selectedMaterial.source} 
+                  href={selectedMaterial.link || selectedMaterial.source} 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="flex items-center gap-2"

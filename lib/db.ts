@@ -38,6 +38,7 @@ export class DatabaseService {
           author VARCHAR(255),
           created_at TIMESTAMP NOT NULL,
           fetched_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          link TEXT,
           source VARCHAR(500),
           status VARCHAR(50) DEFAULT 'new',
           UNIQUE(id)
@@ -67,6 +68,13 @@ export class DatabaseService {
             WHERE table_name = 'materials' AND column_name = 'summary'
           ) THEN
             ALTER TABLE materials ADD COLUMN summary TEXT;
+          END IF;
+
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'materials' AND column_name = 'link'
+          ) THEN
+            ALTER TABLE materials ADD COLUMN link TEXT;
           END IF;
         END $$;
       `)
@@ -117,12 +125,13 @@ export class DatabaseService {
           const exists = checkResult.rows.length > 0
 
           await client.query(
-            `INSERT INTO materials (id, title, content, full_content, thumbnail, author, created_at, fetched_at, source, status)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            `INSERT INTO materials (id, title, content, full_content, thumbnail, author, created_at, fetched_at, link, source, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
              ON CONFLICT (id) DO UPDATE SET
                full_content = EXCLUDED.full_content,
                thumbnail = EXCLUDED.thumbnail,
-               fetched_at = EXCLUDED.fetched_at`,
+               fetched_at = EXCLUDED.fetched_at,
+               link = EXCLUDED.link`,
             [
               material.id,
               material.title,
@@ -132,6 +141,7 @@ export class DatabaseService {
               material.author,
               material.createdAt,
               material.fetchedAt,
+              material.link,
               material.source,
               material.status,
             ]
@@ -164,7 +174,7 @@ export class DatabaseService {
       `SELECT m.id, m.title, m.content, m.full_content as "fullContent", m.thumbnail, m.author, 
               m.created_at as "createdAt", 
               m.fetched_at as "fetchedAt", 
-              m.source, m.status, m.summary,
+              m.source, m.link, m.status, m.summary,
               f.title as "feedName"
        FROM materials m
        LEFT JOIN feeds f ON m.source = f.url
@@ -179,7 +189,7 @@ export class DatabaseService {
       `SELECT m.id, m.title, m.content, m.full_content as "fullContent", m.thumbnail, m.author, 
               m.created_at as "createdAt", 
               m.fetched_at as "fetchedAt", 
-              m.source, m.status, m.summary,
+              m.source, m.link, m.status, m.summary,
               f.title as "feedName"
        FROM materials m
        LEFT JOIN feeds f ON m.source = f.url

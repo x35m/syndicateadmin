@@ -343,6 +343,7 @@ export class RSSParser {
         author: item.author || feedTitle,
         createdAt: this.parseDate(item.pubDate),
         fetchedAt: new Date().toISOString(),
+        link: item.link || item.guid,
         source: feedTitle || feedUrl,
         status: 'new' as const,
       }
