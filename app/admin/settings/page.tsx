@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Header } from '@/components/header'
+import { AdminHeader } from '@/components/admin-header'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -74,7 +74,7 @@ export default function SettingsPage() {
   if (loading) {
     return (
       <>
-        <Header />
+        <AdminHeader />
         <div className="min-h-screen bg-background p-8">
           <div className="container max-w-4xl">
             <div className="text-center py-8">Загрузка...</div>
@@ -86,7 +86,7 @@ export default function SettingsPage() {
 
   return (
     <>
-      <Header />
+      <AdminHeader />
       <div className="min-h-screen bg-background p-8">
         <div className="container max-w-4xl space-y-6">
           <div>

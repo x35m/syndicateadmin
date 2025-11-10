@@ -34,7 +34,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ExternalLink, Trash2, Archive, CheckCircle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Sparkles } from 'lucide-react'
-import { Header } from '@/components/header'
+import { AdminHeader } from '@/components/admin-header'
 import { toast } from 'sonner'
 
 type BulkAction = 'published' | 'archived' | 'delete' | 'generate-summary' | null
@@ -328,7 +328,7 @@ export default function MaterialsPage() {
 
   return (
     <>
-      <Header />
+      <AdminHeader />
       <div className="min-h-screen bg-background p-8">
         <div className="container space-y-6">
           {/* Header with Tabs */}

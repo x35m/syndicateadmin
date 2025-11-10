@@ -6,8 +6,8 @@ import { Toaster } from "@/components/ui/sonner"
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "Material Admin",
-  description: "Admin panel for managing materials from API",
+  title: "Syndicate - Материалы из различных источников",
+  description: "Коллекция публикаций и материалов из различных RSS-источников. Удобный просмотр и фильтрация контента.",
 }
 
 // Инициализация cron job при запуске приложения
