@@ -3,7 +3,6 @@
 import { useEffect, useState, ChangeEvent } from 'react'
 import { AdminHeader } from '@/components/admin-header'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -41,6 +40,14 @@ export default function TaxonomyPage() {
     city: '',
     cityCountryId: '',
   })
+  const [editing, setEditing] = useState<{
+    type: TaxonomyType
+    id: number
+    name: string
+    countryId?: number | ''
+  } | null>(null)
+  const [updating, setUpdating] = useState(false)
+  const [deleting, setDeleting] = useState<{ type: TaxonomyType; id: number } | null>(null)
 
   const fetchTaxonomy = async () => {
     try {
@@ -112,16 +119,100 @@ export default function TaxonomyPage() {
 
       await fetchTaxonomy()
       toast.success('Элемент добавлен')
- 
-       setNewValues((prev) => ({
-         ...prev,
-         [valueKey]: '',
-       }))
+      setNewValues((prev) => ({
+        ...prev,
+        [valueKey]: '',
+      }))
     } catch (error) {
       console.error('Error creating taxonomy item:', error)
       toast.error('Не удалось создать элемент')
     } finally {
       setCreating(null)
+    }
+  }
+
+  const handleUpdate = async () => {
+    if (!editing) return
+
+    const trimmedName = editing.name.trim()
+    if (!trimmedName) {
+      toast.warning('Введите название')
+      return
+    }
+
+    if (editing.type === 'city' && !editing.countryId) {
+      toast.warning('Выберите страну')
+      return
+    }
+
+    try {
+      setUpdating(true)
+      const response = await fetch('/api/taxonomy', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: editing.type,
+          id: editing.id,
+          name: trimmedName,
+          countryId:
+            editing.type === 'city' && editing.countryId
+              ? Number(editing.countryId)
+              : undefined,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok || !result.success) {
+        toast.error(result.error || 'Не удалось сохранить изменения')
+        return
+      }
+
+      toast.success('Изменения сохранены')
+      setEditing(null)
+      await fetchTaxonomy()
+    } catch (error) {
+      console.error('Error updating taxonomy item:', error)
+      toast.error('Не удалось сохранить изменения')
+    } finally {
+      setUpdating(false)
+    }
+  }
+
+  const handleDelete = async (type: TaxonomyType, id: number, name?: string) => {
+    const confirmationMessage =
+      type === 'country'
+        ? `Удалить страну "${name ?? id}" вместе со всеми городами?`
+        : `Удалить элемент "${name ?? id}"?`
+
+    if (typeof window !== 'undefined' && !window.confirm(confirmationMessage)) {
+      return
+    }
+
+    try {
+      setDeleting({ type, id })
+      const response = await fetch(`/api/taxonomy?type=${type}&id=${id}`, {
+        method: 'DELETE',
+      })
+
+      const result = await response.json()
+
+      if (!response.ok || !result.success) {
+        toast.error(result.error || 'Не удалось удалить элемент')
+        return
+      }
+
+      if (editing && editing.type === type && editing.id === id) {
+        setEditing(null)
+      }
+
+      toast.success('Элемент удалён')
+      await fetchTaxonomy()
+    } catch (error) {
+      console.error('Error deleting taxonomy item:', error)
+      toast.error('Не удалось удалить элемент')
+    } finally {
+      setDeleting(null)
     }
   }
 
@@ -150,12 +241,68 @@ export default function TaxonomyPage() {
                   <CardTitle>Категории</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex flex-wrap gap-2">
+                <div className="space-y-2">
                     {taxonomy.categories.length > 0 ? (
                       taxonomy.categories.map((category) => (
-                        <Badge key={category.id} variant="secondary" className="text-xs font-medium">
-                          {category.name}
-                        </Badge>
+                      <div
+                        key={category.id}
+                        className="flex items-center justify-between rounded-md border px-3 py-2"
+                      >
+                        {editing?.type === 'category' && editing.id === category.id ? (
+                          <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
+                            <Input
+                              value={editing.name}
+                              onChange={(e) =>
+                                setEditing((prev) =>
+                                  prev ? { ...prev, name: e.target.value } : prev
+                                )
+                              }
+                              className="h-9 flex-1"
+                              autoFocus
+                            />
+                            <div className="flex gap-2">
+                              <Button size="sm" onClick={handleUpdate} disabled={updating}>
+                                Сохранить
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setEditing(null)}
+                                disabled={updating}
+                              >
+                                Отмена
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <span className="text-sm font-medium">{category.name}</span>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() =>
+                                  setEditing({
+                                    type: 'category',
+                                    id: category.id,
+                                    name: category.name,
+                                  })
+                                }
+                              >
+                                Изменить
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDelete('category', category.id, category.name)}
+                                disabled={deleting?.type === 'category' && deleting.id === category.id}
+                              >
+                                Удалить
+                              </Button>
+                            </div>
+                          </>
+                        )}
+                      </div>
                       ))
                     ) : (
                       <span className="text-sm text-muted-foreground">Список пуст</span>
@@ -184,12 +331,68 @@ export default function TaxonomyPage() {
                   <CardTitle>Темы</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex flex-wrap gap-2">
+                <div className="space-y-2">
                     {taxonomy.themes.length > 0 ? (
                       taxonomy.themes.map((theme) => (
-                        <Badge key={theme.id} variant="secondary" className="text-xs font-medium">
-                          {theme.name}
-                        </Badge>
+                      <div
+                        key={theme.id}
+                        className="flex items-center justify-between rounded-md border px-3 py-2"
+                      >
+                        {editing?.type === 'theme' && editing.id === theme.id ? (
+                          <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
+                            <Input
+                              value={editing.name}
+                              onChange={(e) =>
+                                setEditing((prev) =>
+                                  prev ? { ...prev, name: e.target.value } : prev
+                                )
+                              }
+                              className="h-9 flex-1"
+                              autoFocus
+                            />
+                            <div className="flex gap-2">
+                              <Button size="sm" onClick={handleUpdate} disabled={updating}>
+                                Сохранить
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setEditing(null)}
+                                disabled={updating}
+                              >
+                                Отмена
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <span className="text-sm font-medium">{theme.name}</span>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() =>
+                                  setEditing({
+                                    type: 'theme',
+                                    id: theme.id,
+                                    name: theme.name,
+                                  })
+                                }
+                              >
+                                Изменить
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDelete('theme', theme.id, theme.name)}
+                                disabled={deleting?.type === 'theme' && deleting.id === theme.id}
+                              >
+                                Удалить
+                              </Button>
+                            </div>
+                          </>
+                        )}
+                      </div>
                       ))
                     ) : (
                       <span className="text-sm text-muted-foreground">Список пуст</span>
@@ -218,12 +421,68 @@ export default function TaxonomyPage() {
                   <CardTitle>Теги</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="flex flex-wrap gap-2">
+                <div className="space-y-2">
                     {taxonomy.tags.length > 0 ? (
                       taxonomy.tags.map((tag) => (
-                        <Badge key={tag.id} variant="secondary" className="text-xs font-medium">
-                          {tag.name}
-                        </Badge>
+                      <div
+                        key={tag.id}
+                        className="flex items-center justify-between rounded-md border px-3 py-2"
+                      >
+                        {editing?.type === 'tag' && editing.id === tag.id ? (
+                          <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
+                            <Input
+                              value={editing.name}
+                              onChange={(e) =>
+                                setEditing((prev) =>
+                                  prev ? { ...prev, name: e.target.value } : prev
+                                )
+                              }
+                              className="h-9 flex-1"
+                              autoFocus
+                            />
+                            <div className="flex gap-2">
+                              <Button size="sm" onClick={handleUpdate} disabled={updating}>
+                                Сохранить
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setEditing(null)}
+                                disabled={updating}
+                              >
+                                Отмена
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <span className="text-sm font-medium">{tag.name}</span>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() =>
+                                  setEditing({
+                                    type: 'tag',
+                                    id: tag.id,
+                                    name: tag.name,
+                                  })
+                                }
+                              >
+                                Изменить
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDelete('tag', tag.id, tag.name)}
+                                disabled={deleting?.type === 'tag' && deleting.id === tag.id}
+                              >
+                                Удалить
+                              </Button>
+                            </div>
+                          </>
+                        )}
+                      </div>
                       ))
                     ) : (
                       <span className="text-sm text-muted-foreground">Список пуст</span>
@@ -255,19 +514,170 @@ export default function TaxonomyPage() {
                   <div className="space-y-4">
                     {taxonomy.countries.length > 0 ? (
                       taxonomy.countries.map((country) => (
-                        <div key={country.id} className="rounded-md border p-3">
-                          <div className="font-medium text-sm">{country.name}</div>
-                          {country.cities.length > 0 ? (
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {country.cities.map((city) => (
-                                <Badge key={city.id} variant="outline" className="text-xs font-normal">
-                                  {city.name}
-                                </Badge>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="mt-2 text-xs text-muted-foreground">Города не добавлены</div>
-                          )}
+                        <div key={country.id} className="rounded-md border p-4 space-y-3">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            {editing?.type === 'country' && editing.id === country.id ? (
+                              <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
+                                <Input
+                                  value={editing.name}
+                                  onChange={(e) =>
+                                    setEditing((prev) =>
+                                      prev ? { ...prev, name: e.target.value } : prev
+                                    )
+                                  }
+                                  className="h-9 flex-1"
+                                  autoFocus
+                                />
+                                <div className="flex gap-2">
+                                  <Button size="sm" onClick={handleUpdate} disabled={updating}>
+                                    Сохранить
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => setEditing(null)}
+                                    disabled={updating}
+                                  >
+                                    Отмена
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <span className="text-sm font-semibold">{country.name}</span>
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() =>
+                                      setEditing({
+                                        type: 'country',
+                                        id: country.id,
+                                        name: country.name,
+                                      })
+                                    }
+                                  >
+                                    Изменить
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      handleDelete('country', country.id, country.name)
+                                    }
+                                    disabled={
+                                      deleting?.type === 'country' && deleting.id === country.id
+                                    }
+                                  >
+                                    Удалить
+                                  </Button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+
+                          <div className="space-y-2">
+                            {country.cities.length > 0 ? (
+                              country.cities.map((city) => (
+                                <div
+                                  key={city.id}
+                                  className="flex flex-col gap-2 rounded-md border px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                                >
+                                  {editing?.type === 'city' && editing.id === city.id ? (
+                                    <div className="flex w-full flex-col gap-2 md:flex-row md:items-center">
+                                      <Input
+                                        value={editing.name}
+                                        onChange={(e) =>
+                                          setEditing((prev) =>
+                                            prev ? { ...prev, name: e.target.value } : prev
+                                          )
+                                        }
+                                        className="h-9 flex-1"
+                                        autoFocus
+                                      />
+                                      <select
+                                        className="w-full rounded-md border bg-background px-3 py-2 text-sm md:w-52"
+                                        value={
+                                          editing.countryId !== undefined ? String(editing.countryId) : ''
+                                        }
+                                        onChange={(event) =>
+                                          setEditing((prev) =>
+                                            prev
+                                              ? {
+                                                  ...prev,
+                                                  countryId: event.target.value
+                                                    ? Number(event.target.value)
+                                                    : '',
+                                                }
+                                              : prev
+                                          )
+                                        }
+                                      >
+                                        <option value="">Страна</option>
+                                        {taxonomy.countries.map((option) => (
+                                          <option key={option.id} value={option.id}>
+                                            {option.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <div className="flex gap-2">
+                                        <Button size="sm" onClick={handleUpdate} disabled={updating}>
+                                          Сохранить
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={() => setEditing(null)}
+                                          disabled={updating}
+                                        >
+                                          Отмена
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <div>
+                                        <div className="text-sm font-medium">{city.name}</div>
+                                        <div className="text-xs text-muted-foreground">
+                                          Принадлежит: {country.name}
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() =>
+                                            setEditing({
+                                              type: 'city',
+                                              id: city.id,
+                                              name: city.name,
+                                              countryId: city.countryId,
+                                            })
+                                          }
+                                        >
+                                          Изменить
+                                        </Button>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => handleDelete('city', city.id, city.name)}
+                                          disabled={
+                                            deleting?.type === 'city' && deleting.id === city.id
+                                          }
+                                        >
+                                          Удалить
+                                        </Button>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              ))
+                            ) : (
+                              <div className="text-xs text-muted-foreground">
+                                Города не добавлены
+                              </div>
+                            )}
+                          </div>
                         </div>
                       ))
                     ) : (

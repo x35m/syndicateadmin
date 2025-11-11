@@ -38,7 +38,7 @@ export async function fetchAndSaveMaterials() {
       try {
         console.log(`[${new Date().toISOString()}] Fetching ${feed.title || feed.url}...`)
         const feedData = await rssParser.parseFeed(feed.url)
-        const materials = rssParser.convertToMaterials(feed.title || feedData.title, feed.url, feedData.items)
+        const materials = await rssParser.convertToMaterials(feed.title || feedData.title, feed.url, feedData.items)
         const stats = await db.saveMaterials(materials)
         
         await db.updateFeedFetchTime(feed.id)

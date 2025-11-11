@@ -1,3 +1,4 @@
+import { extract } from '@extractus/article-extractor'
 import { Material } from './types'
 
 interface RSSItem {
@@ -317,24 +318,50 @@ export class RSSParser {
   }
 
   // Преобразуем RSS items в наш формат Material
-  convertToMaterials(feedTitle: string, feedUrl: string, items: RSSItem[]): Material[] {
-    return items.map((item) => {
-      const htmlContent = item.content || item.description || ''
-      const textContent = this.stripHtml(htmlContent)
-      
-      // Извлекаем изображение
-      let thumbnail = this.extractFirstImage(htmlContent)
+  async convertToMaterials(feedTitle: string, feedUrl: string, items: RSSItem[]): Promise<Material[]> {
+    const materials: Material[] = []
+
+    for (const item of items) {
+      const baseHtmlContent = item.content || item.description || ''
+      let fullContent = baseHtmlContent
+      let thumbnail = this.extractFirstImage(baseHtmlContent)
       if (!thumbnail && item.enclosure && item.enclosure.type.startsWith('image/')) {
         thumbnail = item.enclosure.url
       }
-      
-      // Добавляем изображение в HTML если его там нет
-      let fullContent = htmlContent
-      if (thumbnail && !fullContent.includes(thumbnail)) {
-        fullContent = `<img src="${thumbnail}" alt="${item.title}" style="max-width: 100%; height: auto;" />` + fullContent
+
+      const shouldExtractFullArticle =
+        (!fullContent || this.stripHtml(fullContent).length < 400) && Boolean(item.link)
+
+      if (shouldExtractFullArticle && item.link) {
+        try {
+          const article = await extract(item.link)
+          if (article?.content) {
+            const cleaned = article.content.trim()
+            if (cleaned.length > (fullContent?.length ?? 0)) {
+              fullContent = cleaned
+            }
+          }
+          if (!thumbnail && article?.image) {
+            thumbnail = article.image
+          }
+        } catch (error) {
+          console.warn(`[RSS Parser] Failed to extract article for ${item.link}:`, error)
+        }
       }
-      
-      return {
+
+      if (!fullContent || fullContent.trim().length === 0) {
+        fullContent = baseHtmlContent
+      }
+
+      if (thumbnail && fullContent && !fullContent.includes(thumbnail)) {
+        fullContent =
+          `<img src="${thumbnail}" alt="${item.title}" style="max-width: 100%; height: auto;" />` +
+          fullContent
+      }
+
+      const textContent = this.stripHtml(fullContent || baseHtmlContent)
+
+      materials.push({
         id: item.guid || item.link || `${feedUrl}-${Date.now()}-${Math.random()}`,
         title: item.title,
         content: textContent.substring(0, 500),
@@ -346,8 +373,10 @@ export class RSSParser {
         link: item.link || item.guid,
         source: feedTitle || feedUrl,
         status: 'new' as const,
-      }
-    })
+      })
+    }
+
+    return materials
   }
 
   private extractFirstImage(html: string): string | undefined {

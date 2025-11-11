@@ -756,6 +756,7 @@ export default function MaterialsPage() {
                       <TableHead className="w-[220px]">Категории</TableHead>
                       <TableHead>Источник</TableHead>
                       <TableHead className="w-[130px]">Дата</TableHead>
+                      <TableHead className="w-[140px]">Саммари</TableHead>
                       <TableHead>Статус</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -813,6 +814,21 @@ export default function MaterialsPage() {
                           </div>
                         </TableCell>
                         <TableCell onClick={() => openMaterialDialog(material)}>{formatDate(material.createdAt)}</TableCell>
+                        <TableCell onClick={() => openMaterialDialog(material)}>
+                          {generatingSummary.has(material.id) ? (
+                            <Badge variant="secondary" className="bg-blue-500/10 text-blue-700 dark:text-blue-400">
+                              Генерация...
+                            </Badge>
+                          ) : material.summary && material.summary.trim().length > 0 ? (
+                            <Badge variant="default">
+                              Есть
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline">
+                              Нет
+                            </Badge>
+                          )}
+                        </TableCell>
                         <TableCell onClick={() => openMaterialDialog(material)}>{getStatusBadge(material.status)}</TableCell>
                       </TableRow>
                     ))}

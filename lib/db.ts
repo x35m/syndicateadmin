@@ -16,6 +16,7 @@ export class DatabaseService {
                    m.author,
                    m.created_at AS "createdAt",
                    m.fetched_at AS "fetchedAt",
+                   m.link,
                    m.source,
                    m.status,
                    m.summary,
@@ -412,6 +413,110 @@ export class DatabaseService {
       }
       default:
         throw new Error('Неизвестный тип таксономии')
+    }
+  }
+
+  async updateTaxonomyItem(
+    type: 'category' | 'theme' | 'tag' | 'country' | 'city',
+    id: number,
+    data: { name?: string; countryId?: number | null }
+  ) {
+    const trimmedName = data.name?.trim() ?? ''
+
+    switch (type) {
+      case 'category':
+        if (!trimmedName) throw new Error('Название категории не может быть пустым')
+        return (
+          await pool.query(
+            'UPDATE categories SET name = $1 WHERE id = $2 RETURNING id, name',
+            [trimmedName, id]
+          )
+        ).rows[0]
+      case 'theme':
+        if (!trimmedName) throw new Error('Название темы не может быть пустым')
+        return (
+          await pool.query(
+            'UPDATE themes SET name = $1 WHERE id = $2 RETURNING id, name',
+            [trimmedName, id]
+          )
+        ).rows[0]
+      case 'tag':
+        if (!trimmedName) throw new Error('Название тега не может быть пустым')
+        return (
+          await pool.query(
+            'UPDATE tags SET name = $1 WHERE id = $2 RETURNING id, name',
+            [trimmedName, id]
+          )
+        ).rows[0]
+      case 'country':
+        if (!trimmedName) throw new Error('Название страны не может быть пустым')
+        return (
+          await pool.query(
+            'UPDATE countries SET name = $1 WHERE id = $2 RETURNING id, name',
+            [trimmedName, id]
+          )
+        ).rows[0]
+      case 'city': {
+        if (!trimmedName) throw new Error('Название города не может быть пустым')
+        const countryId =
+          data.countryId !== undefined && data.countryId !== null
+            ? Number(data.countryId)
+            : null
+        if (!countryId) {
+          throw new Error('Для города необходимо указать страну')
+        }
+        return (
+          await pool.query(
+            'UPDATE cities SET name = $1, country_id = $2 WHERE id = $3 RETURNING id, name, country_id AS "countryId"',
+            [trimmedName, countryId, id]
+          )
+        ).rows[0]
+      }
+      default:
+        throw new Error('Неизвестный тип таксономии')
+    }
+  }
+
+  async deleteTaxonomyItem(
+    type: 'category' | 'theme' | 'tag' | 'country' | 'city',
+    id: number
+  ) {
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+
+      switch (type) {
+        case 'category':
+          await client.query('DELETE FROM categories WHERE id = $1', [id])
+          break
+        case 'theme':
+          await client.query('DELETE FROM themes WHERE id = $1', [id])
+          break
+        case 'tag':
+          await client.query('DELETE FROM tags WHERE id = $1', [id])
+          break
+        case 'city':
+          await client.query('UPDATE materials SET city_id = NULL WHERE city_id = $1', [id])
+          await client.query('DELETE FROM cities WHERE id = $1', [id])
+          break
+        case 'country':
+          await client.query(
+            'UPDATE materials SET city_id = NULL WHERE city_id IN (SELECT id FROM cities WHERE country_id = $1)',
+            [id]
+          )
+          await client.query('UPDATE materials SET country_id = NULL WHERE country_id = $1', [id])
+          await client.query('DELETE FROM countries WHERE id = $1', [id])
+          break
+        default:
+          throw new Error('Неизвестный тип таксономии')
+      }
+
+      await client.query('COMMIT')
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
     }
   }
 

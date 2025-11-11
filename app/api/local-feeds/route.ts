@@ -79,7 +79,7 @@ export async function POST(request: Request) {
     console.log(`[Local Feeds] Feed added successfully:`, feed)
 
     // Сразу импортируем материалы из фида
-    const materials = rssParser.convertToMaterials(feedInfo.title, feedUrl, feedInfo.items)
+    const materials = await rssParser.convertToMaterials(feedInfo.title, feedUrl, feedInfo.items)
     const stats = await db.saveMaterials(materials)
     
     // Обновляем время последней загрузки

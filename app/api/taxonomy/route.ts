@@ -41,3 +41,69 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: message }, { status: 400 })
   }
 }
+
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json()
+    const { type, id, name, countryId } = body as {
+      type?: 'category' | 'theme' | 'tag' | 'country' | 'city'
+      id?: number
+      name?: string
+      countryId?: number | null
+    }
+
+    if (!type || !id) {
+      return NextResponse.json(
+        { success: false, error: 'Не указан тип или идентификатор' },
+        { status: 400 }
+      )
+    }
+
+    const updated = await db.updateTaxonomyItem(type, id, {
+      name,
+      countryId,
+    })
+
+    return NextResponse.json({ success: true, data: updated })
+  } catch (error) {
+    console.error('Error updating taxonomy item:', error)
+    const message = error instanceof Error ? error.message : 'Не удалось обновить элемент'
+    const status =
+      error instanceof Error && 'code' in error && (error as { code?: string }).code === '23505'
+        ? 409
+        : 400
+    return NextResponse.json({ success: false, error: message }, { status })
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const type = searchParams.get('type') as
+      | 'category'
+      | 'theme'
+      | 'tag'
+      | 'country'
+      | 'city'
+      | null
+    const id = searchParams.get('id')
+
+    if (!type || !id) {
+      return NextResponse.json(
+        { success: false, error: 'Не указан тип или идентификатор' },
+        { status: 400 }
+      )
+    }
+
+    await db.deleteTaxonomyItem(type, Number(id))
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('Error deleting taxonomy item:', error)
+    const message =
+      error instanceof Error && error.message
+        ? error.message
+        : 'Не удалось удалить элемент'
+    return NextResponse.json({ success: false, error: message }, { status: 400 })
+  }
+}

@@ -363,15 +363,27 @@ export async function POST(request: Request) {
       if (key.length === 0) return null
       const candidates = cityByName.get(key) ?? []
 
-      let city = candidates.find((item) =>
-        countryIdHint ? item.countryId === countryIdHint : true
-      )
+      if (candidates.length > 0) {
+        const preferred =
+          candidates.find((item) =>
+            countryIdHint ? item.countryId === countryIdHint : true
+          ) ?? candidates[0]
 
-      if (city) {
-        return city
+        if (
+          countryIdHint &&
+          preferred.countryId !== countryIdHint &&
+          taxonomyUpdatePayload.countryId !== preferred.countryId
+        ) {
+          taxonomyUpdatePayload.countryId = preferred.countryId
+        }
+
+        return preferred
       }
 
       if (!countryIdHint) {
+        console.warn(
+          `City "${name}" cannot be created without a country reference. Skipping.`
+        )
         return null
       }
 
@@ -390,6 +402,13 @@ export async function POST(request: Request) {
       )
       if (parentCountry) {
         parentCountry.cities = [...(parentCountry.cities ?? []), enriched]
+      } else {
+        const fallbackCountry = taxonomyData.countries.find(
+          (country) => country.id === enriched.countryId
+        )
+        if (fallbackCountry) {
+          fallbackCountry.cities = [...(fallbackCountry.cities ?? []), enriched]
+        }
       }
 
       return enriched

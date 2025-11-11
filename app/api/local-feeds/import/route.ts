@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     const feedData = await rssParser.parseFeed(feed.url)
     
     // Конвертируем в материалы
-    const materials = rssParser.convertToMaterials(feed.title || feedData.title, feed.url, feedData.items)
+    const materials = await rssParser.convertToMaterials(feed.title || feedData.title, feed.url, feedData.items)
     
     if (materials.length === 0) {
       return NextResponse.json({

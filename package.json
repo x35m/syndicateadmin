@@ -28,7 +28,8 @@
     "tailwind-merge": "^2.3.0",
     "tailwindcss-animate": "^1.0.7",
     "node-cron": "^3.0.3",
-    "pg": "^8.11.3"
+    "pg": "^8.11.3",
+    "@extractus/article-extractor": "^8.0.20"
   },
   "devDependencies": {
     "typescript": "^5",
