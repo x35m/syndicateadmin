@@ -20,6 +20,9 @@ export class DatabaseService {
                    m.source,
                    m.status,
                    m.summary,
+                   m.meta_description AS "metaDescription",
+                   m.sentiment,
+                   m.content_type AS "contentType",
                    f.title AS "feedName",
                    country_data.country,
                    city_data.city,
@@ -255,6 +258,27 @@ export class DatabaseService {
             WHERE table_name = 'materials' AND column_name = 'city_id'
           ) THEN
             ALTER TABLE materials ADD COLUMN city_id INTEGER REFERENCES cities(id);
+          END IF;
+
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'materials' AND column_name = 'meta_description'
+          ) THEN
+            ALTER TABLE materials ADD COLUMN meta_description TEXT;
+          END IF;
+
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'materials' AND column_name = 'sentiment'
+          ) THEN
+            ALTER TABLE materials ADD COLUMN sentiment VARCHAR(20);
+          END IF;
+
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'materials' AND column_name = 'content_type'
+          ) THEN
+            ALTER TABLE materials ADD COLUMN content_type VARCHAR(50);
           END IF;
         END $$;
       `)
@@ -962,11 +986,47 @@ export class DatabaseService {
   }
 
   // Material summary methods
-  async updateMaterialSummary(id: string, summary: string): Promise<void> {
-    await pool.query(
-      'UPDATE materials SET summary = $1 WHERE id = $2',
-      [summary, id]
-    )
+  async updateMaterialSummary(
+    id: string,
+    data: {
+      summary?: string
+      metaDescription?: string
+      sentiment?: 'positive' | 'neutral' | 'negative'
+      contentType?: 'purely_factual' | 'mostly_factual' | 'balanced' | 'mostly_opinion' | 'purely_opinion'
+    }
+  ): Promise<void> {
+    const updates: string[] = []
+    const values: any[] = []
+    let paramIndex = 1
+
+    if (data.summary !== undefined) {
+      updates.push(`summary = $${paramIndex}`)
+      values.push(data.summary)
+      paramIndex++
+    }
+    if (data.metaDescription !== undefined) {
+      updates.push(`meta_description = $${paramIndex}`)
+      values.push(data.metaDescription)
+      paramIndex++
+    }
+    if (data.sentiment !== undefined) {
+      updates.push(`sentiment = $${paramIndex}`)
+      values.push(data.sentiment)
+      paramIndex++
+    }
+    if (data.contentType !== undefined) {
+      updates.push(`content_type = $${paramIndex}`)
+      values.push(data.contentType)
+      paramIndex++
+    }
+
+    if (updates.length > 0) {
+      values.push(id)
+      await pool.query(
+        `UPDATE materials SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
+        values
+      )
+    }
   }
 
   async getMaterialSummary(id: string): Promise<string | null> {

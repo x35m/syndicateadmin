@@ -12,6 +12,9 @@ export interface Material {
   status: 'new' | 'processed' | 'archived'
   link?: string // Ссылка на оригинальную статью
   summary?: string // AI-генерированное саммари статьи
+  metaDescription?: string // SEO мета-описание (150-160 символов)
+  sentiment?: 'positive' | 'neutral' | 'negative' // Тональность материала
+  contentType?: 'purely_factual' | 'mostly_factual' | 'balanced' | 'mostly_opinion' | 'purely_opinion' // Тип контента
   categories?: Category[]
   themes?: Theme[]
   tags?: Tag[]

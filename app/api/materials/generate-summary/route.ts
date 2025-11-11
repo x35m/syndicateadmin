@@ -2,8 +2,52 @@ import type { Alliance, Category, City, Country, Tag, Theme } from '@/lib/types'
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
-const DEFAULT_SUMMARY_PROMPT =
-  'Создай краткое саммари следующей статьи. Выдели основные моменты и ключевые идеи. Ответ должен быть на русском языке, лаконичным и информативным (3-5 предложений).'
+const DEFAULT_ANALYSIS_PROMPT = `Ты - аналитик новостного контента. Проанализируй статью и предоставь структурированный результат.
+
+ЗАДАЧИ:
+
+1. META_DESCRIPTION (150-160 символов):
+   - Краткое описание сути статьи для SEO
+   - Нейтральный тон, максимально информативно
+   - Для поисковых систем и социальных сетей
+
+2. SUMMARY (3-5 предложений):
+   - Выдели основные моменты и ключевые идеи
+   - Профессиональный аналитический стиль
+   - Полностью нейтральное изложение без эмоциональной окраски
+   - Простой человеческий язык для комфортного восприятия
+   - ВАЖНО: Перефразируй своими словами, НЕ копируй предложения из оригинала
+   - SEO уникальность 90%+
+
+3. SENTIMENT (тональность материала):
+   - positive (позитивная)
+   - neutral (нейтральная)
+   - negative (негативная)
+
+4. CONTENT_TYPE (тип контента):
+   - purely_factual (новостная заметка, только факты)
+   - mostly_factual (преимущественно факты с элементами анализа)
+   - balanced (факты и мнения примерно поровну)
+   - mostly_opinion (аналитика с мнениями)
+   - purely_opinion (авторская колонка, редакционная статья)
+
+ФОРМАТ ВЫВОДА (JSON):
+{
+  "meta_description": "...",
+  "summary": "...",
+  "sentiment": "...",
+  "content_type": "...",
+  "taxonomy": {
+    "country": "Название страны или null",
+    "city": "Название города или null",
+    "themes": ["Список тем"],
+    "tags": ["Список тегов"],
+    "alliances": ["Список союзов и блоков"]
+  }
+}
+
+Ответ должен быть на русском языке. Никакого markdown или дополнительного текста - только чистый JSON.`
+
 const DEFAULT_TAXONOMY_SYSTEM_PROMPT =
   'Ты — редактор аналитического портала. Определи страну, город, темы и теги статьи так, чтобы они помогали редакции быстро рубрицировать материалы.'
 const DEFAULT_TAXONOMY_FORMAT_PROMPT =
@@ -21,7 +65,79 @@ const DEFAULT_TAXONOMY_PROMPTS: Record<PromptType, string> = {
 }
 
 const GEMINI_MODEL = 'gemini-2.5-flash'
+const CLAUDE_MODEL = 'claude-3-5-sonnet-20241022'
 const MAX_CONTENT_LENGTH = 15000
+
+type AIProvider = 'gemini' | 'claude'
+
+async function callGemini(apiKey: string, prompt: string) {
+  const requestBody = {
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: prompt }],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.4,
+      responseMimeType: 'application/json',
+    },
+  }
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify(requestBody),
+    }
+  )
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(`Gemini API error: ${response.status} - ${errorText}`)
+  }
+
+  const data = await response.json()
+  return (
+    data.candidates?.[0]?.content?.parts
+      ?.map((part: { text?: string }) => part.text ?? '')
+      .join('')
+      .trim() ?? ''
+  )
+}
+
+async function callClaude(apiKey: string, prompt: string) {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: CLAUDE_MODEL,
+      max_tokens: 4096,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    }),
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(`Claude API error: ${response.status} - ${errorText}`)
+  }
+
+  const data = await response.json()
+  return data.content?.[0]?.text?.trim() ?? ''
+}
 
 const normalizeName = (value?: string | null) =>
   (value ?? '').normalize('NFKC').trim().toLowerCase()
@@ -108,8 +224,10 @@ export async function POST(request: Request) {
     }
 
     const settings = await db.getSettings()
+    const aiProvider = (settings['ai_provider'] || 'gemini') as AIProvider
     const geminiApiKey = settings['gemini_api_key']
-    const summaryPrompt = settings['summary_prompt']
+    const claudeApiKey = settings['claude_api_key']
+    const analysisPrompt = settings['analysis_prompt'] || DEFAULT_ANALYSIS_PROMPT
     const taxonomySystemPrompt = settings['taxonomy_system_prompt']
     const taxonomyFormatPrompt = settings['taxonomy_format_prompt']
     const taxonomyPrompts: Record<PromptType, string> = {
@@ -127,11 +245,12 @@ export async function POST(request: Request) {
         settings['taxonomy_prompt_city'] ?? DEFAULT_TAXONOMY_PROMPTS.city,
     }
 
-    if (!geminiApiKey) {
+    const apiKey = aiProvider === 'claude' ? claudeApiKey : geminiApiKey
+    if (!apiKey) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Gemini API ключ не настроен. Перейдите в Настройки.',
+          error: `${aiProvider === 'claude' ? 'Claude' : 'Gemini'} API ключ не настроен. Перейдите в Настройки.`,
         },
         { status: 400 }
       )
@@ -147,7 +266,7 @@ export async function POST(request: Request) {
     }
 
     let contentToAnalyze = material.fullContent || material.content
-
+    
     if (!contentToAnalyze || contentToAnalyze.trim().length === 0) {
       return NextResponse.json(
         {
@@ -157,7 +276,7 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
-
+    
     if (contentToAnalyze.length > MAX_CONTENT_LENGTH) {
       console.log(
         `Content too long (${contentToAnalyze.length}), truncating to ${MAX_CONTENT_LENGTH}`
@@ -175,10 +294,8 @@ export async function POST(request: Request) {
     }
 
     const promptSections = [
-      'Задача: создай краткое саммари и предложи таксономию для статьи.',
-      summaryPrompt || DEFAULT_SUMMARY_PROMPT,
+      analysisPrompt,
       taxonomySystemPrompt || DEFAULT_TAXONOMY_SYSTEM_PROMPT,
-      taxonomyFormatPrompt || DEFAULT_TAXONOMY_FORMAT_PROMPT,
       `Правила для категорий: ${taxonomyPrompts.category}`,
       `Правила для тем: ${taxonomyPrompts.theme}`,
       `Правила для тегов: ${taxonomyPrompts.tag}`,
@@ -199,144 +316,84 @@ export async function POST(request: Request) {
     const prompt = promptSections.filter(Boolean).join('\n\n')
 
     console.log(
-      `Generating summary & taxonomy for material ${materialId}. Content length: ${contentToAnalyze.length}`
+      `Generating analysis for material ${materialId} using ${aiProvider}. Content length: ${contentToAnalyze.length}`
     )
 
-    const requestBody = {
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              text: prompt,
-            },
-          ],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.4,
-        responseMimeType: 'application/json',
-      },
-    }
-
-    console.log(
-      'Gemini request (truncated):',
-      JSON.stringify(requestBody).substring(0, 400) + '...'
-    )
-
-    const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': geminiApiKey,
-        },
-        body: JSON.stringify(requestBody),
+    let textResponse: string
+    try {
+      if (aiProvider === 'claude') {
+        textResponse = await callClaude(apiKey, prompt)
+      } else {
+        textResponse = await callGemini(apiKey, prompt)
       }
-    )
-
-    if (!geminiResponse.ok) {
-      const errorText = await geminiResponse.text()
-      console.error(
-        'Gemini API error:',
-        geminiResponse.status,
-        errorText.slice(0, 500)
-      )
-
-      let errorMessage = 'Ошибка при обращении к Gemini API'
-      let userFriendlyMessage = errorMessage
-
-      try {
-        const errorData = JSON.parse(errorText)
-        errorMessage = errorData.error?.message || errorMessage
-
-        if (errorMessage.includes('internal error')) {
-          userFriendlyMessage =
-            'Временная ошибка Gemini API. Попробуйте через несколько секунд.'
-        } else if (errorMessage.includes('API key')) {
-          userFriendlyMessage = 'Проблема с API ключом. Проверьте настройки.'
-        } else if (
-          errorMessage.includes('quota') ||
-          errorMessage.includes('limit')
-        ) {
-          userFriendlyMessage =
-            'Превышен лимит запросов. Подождите немного и повторите попытку.'
-        } else if (errorMessage.includes('SAFETY')) {
-          userFriendlyMessage =
-            'Контент заблокирован фильтром безопасности Gemini.'
-        } else {
-          userFriendlyMessage = errorMessage
-        }
-      } catch (parseError) {
-        console.error('Failed to parse Gemini error payload:', parseError)
-      }
-
+    } catch (error) {
+      console.error(`Error calling ${aiProvider} API:`, error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       return NextResponse.json(
-        { success: false, error: userFriendlyMessage, details: errorMessage },
-        { status: geminiResponse.status }
+        {
+          success: false,
+          error: `Ошибка при обращении к ${aiProvider === 'claude' ? 'Claude' : 'Gemini'} API: ${errorMessage}`,
+        },
+        { status: 500 }
       )
     }
 
-    const geminiData = await geminiResponse.json()
-    const textResponse =
-      geminiData.candidates?.[0]?.content?.parts
-        ?.map((part: { text?: string }) => part.text ?? '')
-        .join('')
-        .trim() ?? ''
-
     console.log(
-      'Gemini response (truncated):',
+      `${aiProvider} response (truncated):`,
       textResponse.slice(0, 500) + (textResponse.length > 500 ? '...' : '')
     )
 
     const jsonPayload = extractJsonFromText(textResponse)
 
     if (!jsonPayload) {
-      console.error('Gemini response is not valid JSON. Full text:', textResponse)
+      console.error(`${aiProvider} response is not valid JSON. Full text:`, textResponse)
       return NextResponse.json(
         {
           success: false,
-          error:
-            'Нейросеть вернула ответ в неожиданном формате. Уточните промпт для JSON.',
+          error: `Нейросеть вернула ответ в неожиданном формате. Уточните промпт для JSON.`,
         },
         { status: 500 }
       )
     }
 
     let parsedResponse: {
+      meta_description?: string
       summary?: string
+      sentiment?: 'positive' | 'neutral' | 'negative'
+      content_type?: 'purely_factual' | 'mostly_factual' | 'balanced' | 'mostly_opinion' | 'purely_opinion'
       taxonomy?: {
         country?: string | null
         city?: string | null
         themes?: unknown
         tags?: unknown
+        alliances?: unknown
       }
     }
 
     try {
       parsedResponse = JSON.parse(jsonPayload)
     } catch (parseError) {
-      console.error('Failed to parse JSON from Gemini:', parseError, jsonPayload)
+      console.error(`Failed to parse JSON from ${aiProvider}:`, parseError, jsonPayload)
       return NextResponse.json(
         {
           success: false,
-          error:
-            'Не удалось разобрать JSON от нейросети. Проверьте формат ответа.',
+          error: 'Не удалось разобрать JSON от нейросети. Проверьте формат ответа.',
         },
         { status: 500 }
       )
     }
 
     const summary = sanitizeString(parsedResponse.summary)
+    const metaDescription = sanitizeString(parsedResponse.meta_description)
+    const sentiment = parsedResponse.sentiment as 'positive' | 'neutral' | 'negative' | undefined
+    const contentType = parsedResponse.content_type as 'purely_factual' | 'mostly_factual' | 'balanced' | 'mostly_opinion' | 'purely_opinion' | undefined
 
     if (!summary) {
       console.error('Summary is missing in parsed response:', parsedResponse)
       return NextResponse.json(
         {
           success: false,
-          error:
-            'Нейросеть не вернула саммари. Уточните промпт или повторите попытку.',
+          error: 'Нейросеть не вернула саммари. Уточните промпт или повторите попытку.',
         },
         { status: 500 }
       )
@@ -602,7 +659,12 @@ export async function POST(request: Request) {
       taxonomyUpdatePayload.allianceIds = ids
     }
 
-    await db.updateMaterialSummary(materialId, summary)
+    await db.updateMaterialSummary(materialId, {
+      summary,
+      metaDescription: metaDescription || undefined,
+      sentiment: sentiment || undefined,
+      contentType: contentType || undefined,
+    })
 
     const shouldUpdateTaxonomy =
       Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'countryId') ||
