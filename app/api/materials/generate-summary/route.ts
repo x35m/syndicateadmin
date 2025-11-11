@@ -65,7 +65,7 @@ const DEFAULT_TAXONOMY_PROMPTS: Record<PromptType, string> = {
 }
 
 const GEMINI_MODEL = 'gemini-2.5-flash'
-const CLAUDE_MODEL = 'claude-3-5-sonnet-20241022'
+const CLAUDE_MODEL = 'claude-3-5-sonnet-20240620'
 const MAX_CONTENT_LENGTH = 15000
 
 type AIProvider = 'gemini' | 'claude'
