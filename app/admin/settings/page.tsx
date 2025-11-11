@@ -7,9 +7,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { toast } from 'sonner'
-import { Save } from 'lucide-react'
+import { Save, ChevronDown } from 'lucide-react'
 
 interface Settings {
   geminiApiKey: string
@@ -168,20 +168,26 @@ export default function SettingsPage() {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="aiProvider">Провайдер AI</Label>
-                <Select
-                  value={settings.aiProvider}
-                  onValueChange={(value: 'gemini' | 'claude') =>
-                    setSettings({ ...settings, aiProvider: value })
-                  }
-                >
-                  <SelectTrigger id="aiProvider">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="gemini">Google Gemini</SelectItem>
-                    <SelectItem value="claude">Anthropic Claude</SelectItem>
-                  </SelectContent>
-                </Select>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="w-full justify-between">
+                      {settings.aiProvider === 'gemini' ? 'Google Gemini' : 'Anthropic Claude'}
+                      <ChevronDown className="ml-2 h-4 w-4 opacity-50" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent>
+                    <DropdownMenuItem
+                      onClick={() => setSettings({ ...settings, aiProvider: 'gemini' })}
+                    >
+                      Google Gemini
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => setSettings({ ...settings, aiProvider: 'claude' })}
+                    >
+                      Anthropic Claude
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
 
               {settings.aiProvider === 'gemini' && (
