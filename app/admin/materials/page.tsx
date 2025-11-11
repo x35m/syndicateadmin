@@ -87,6 +87,7 @@ export default function MaterialsPage() {
   })
 
   const fetchMaterials = async (status: string = 'all') => {
+    setLoading(true)
     try {
       const url = status !== 'all'
         ? `/api/materials?status=${status}`
@@ -101,6 +102,8 @@ export default function MaterialsPage() {
       }
     } catch (error) {
       console.error('Error fetching materials:', error)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -246,9 +249,7 @@ export default function MaterialsPage() {
 
   const handleFilterChange = async (value: string) => {
     setFilter(value)
-    setLoading(true)
     await fetchMaterials(value)
-    setLoading(false)
     setSelectedIds(new Set())
     setCurrentPage(1)
   }
@@ -543,6 +544,16 @@ export default function MaterialsPage() {
   }
 
   const dialogContent = getActionDialogContent()
+
+  useEffect(() => {
+    const initialize = async () => {
+      await fetchMaterials('all')
+      await fetchTaxonomy()
+    }
+
+    initialize()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <>
