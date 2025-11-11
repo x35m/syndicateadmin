@@ -3,13 +3,11 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import Anthropic from '@anthropic-ai/sdk'
 
-const GEMINI_MODEL = 'gemini-2.5-flash'
-const CLAUDE_MODEL = 'claude-3-haiku-20240307'
 const MAX_CONTENT_LENGTH = 15000
 
 type AIProvider = 'gemini' | 'claude'
 
-async function callGemini(apiKey: string, prompt: string) {
+async function callGemini(apiKey: string, model: string, prompt: string) {
   const requestBody = {
     contents: [
       {
@@ -24,7 +22,7 @@ async function callGemini(apiKey: string, prompt: string) {
   }
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     {
       method: 'POST',
       headers: {
@@ -49,14 +47,14 @@ async function callGemini(apiKey: string, prompt: string) {
   )
 }
 
-async function callClaude(apiKey: string, prompt: string) {
+async function callClaude(apiKey: string, model: string, prompt: string) {
   const anthropic = new Anthropic({
     apiKey: apiKey,
   })
 
   try {
     const message = await anthropic.messages.create({
-      model: CLAUDE_MODEL,
+      model: model,
       max_tokens: 4096,
       messages: [
         {
@@ -199,9 +197,12 @@ export async function POST(request: Request) {
     }
 
     const settings = await db.getSettings()
-    const aiProvider = (settings.aiProvider as AIProvider) || 'gemini'
-    const apiKey =
-      aiProvider === 'claude' ? settings.claudeApiKey : settings.geminiApiKey
+    const aiProvider = (settings['ai_provider'] || 'gemini') as AIProvider
+    const geminiApiKey = settings['gemini_api_key']
+    const claudeApiKey = settings['claude_api_key']
+    const geminiModel = settings['gemini_model'] || 'gemini-2.5-flash'
+    const claudeModel = settings['claude_model'] || 'claude-3-haiku-20240307'
+    const apiKey = aiProvider === 'claude' ? claudeApiKey : geminiApiKey
 
     if (!apiKey) {
       return NextResponse.json(
@@ -222,19 +223,19 @@ export async function POST(request: Request) {
     )
 
     const categoryPrompt =
-      settings.taxonomyPromptCategory || DEFAULT_TAXONOMY_PROMPTS.category
+      settings['taxonomy_prompt_category'] || DEFAULT_TAXONOMY_PROMPTS.category
     const themePrompt =
-      settings.taxonomyPromptTheme || DEFAULT_TAXONOMY_PROMPTS.theme
-    const tagPrompt = settings.taxonomyPromptTag || DEFAULT_TAXONOMY_PROMPTS.tags
+      settings['taxonomy_prompt_theme'] || DEFAULT_TAXONOMY_PROMPTS.theme
+    const tagPrompt = settings['taxonomy_prompt_tag'] || DEFAULT_TAXONOMY_PROMPTS.tags
     const alliancePrompt =
-      settings.taxonomyPromptAlliance || DEFAULT_TAXONOMY_PROMPTS.alliance
+      settings['taxonomy_prompt_alliance'] || DEFAULT_TAXONOMY_PROMPTS.alliance
     const countryPrompt =
-      settings.taxonomyPromptCountry || DEFAULT_TAXONOMY_PROMPTS.country
+      settings['taxonomy_prompt_country'] || DEFAULT_TAXONOMY_PROMPTS.country
     const cityPrompt =
-      settings.taxonomyPromptCity || DEFAULT_TAXONOMY_PROMPTS.city
+      settings['taxonomy_prompt_city'] || DEFAULT_TAXONOMY_PROMPTS.city
 
     const formatPrompt =
-      settings.taxonomyFormatPrompt || DEFAULT_TAXONOMY_FORMAT_PROMPT
+      settings['taxonomy_format_prompt'] || DEFAULT_TAXONOMY_FORMAT_PROMPT
 
     const articleContent = material.fullContent || material.content || ''
     const truncatedContent =
@@ -268,8 +269,8 @@ export async function POST(request: Request) {
     const fullPrompt = promptSections.join('\n')
 
     const aiResponse = await (aiProvider === 'claude'
-      ? callClaude(apiKey, fullPrompt)
-      : callGemini(apiKey, fullPrompt))
+      ? callClaude(apiKey, claudeModel, fullPrompt)
+      : callGemini(apiKey, geminiModel, fullPrompt))
 
     const jsonText = extractJsonFromText(aiResponse)
     if (!jsonText) {

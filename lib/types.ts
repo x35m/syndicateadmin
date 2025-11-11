@@ -19,8 +19,8 @@ export interface Material {
   themes?: Theme[]
   tags?: Tag[]
   alliances?: Alliance[]
-  country?: Country | null
-  city?: City | null
+  countries?: Country[]
+  cities?: City[]
 }
 
 export interface ApiConfig {

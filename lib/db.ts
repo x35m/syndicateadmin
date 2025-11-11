@@ -24,24 +24,26 @@ export class DatabaseService {
                    m.sentiment,
                    m.content_type AS "contentType",
                    f.title AS "feedName",
-                   country_data.country,
-                   city_data.city,
+                   COALESCE(
+                     (SELECT json_agg(json_build_object('id', c.id, 'name', c.name))
+                      FROM material_countries mc
+                      JOIN countries c ON mc.country_id = c.id
+                      WHERE mc.material_id = m.id),
+                     '[]'::json
+                   ) AS countries_data,
+                   COALESCE(
+                     (SELECT json_agg(json_build_object('id', ci.id, 'name', ci.name, 'countryId', ci.country_id))
+                      FROM material_cities mci
+                      JOIN cities ci ON mci.city_id = ci.id
+                      WHERE mci.material_id = m.id),
+                     '[]'::json
+                   ) AS cities_data,
                    categories_data.categories,
                    themes_data.themes,
                    tags_data.tags,
                    alliances_data.alliances
             FROM materials m
             LEFT JOIN feeds f ON m.source = f.url
-            LEFT JOIN LATERAL (
-              SELECT json_build_object('id', c.id, 'name', c.name) AS country
-              FROM countries c
-              WHERE c.id = m.country_id
-            ) country_data ON TRUE
-            LEFT JOIN LATERAL (
-              SELECT json_build_object('id', ci.id, 'name', ci.name, 'countryId', ci.country_id) AS city
-              FROM cities ci
-              WHERE ci.id = m.city_id
-            ) city_data ON TRUE
             LEFT JOIN LATERAL (
               SELECT COALESCE(
                 json_agg(
@@ -211,6 +213,22 @@ export class DatabaseService {
           material_id VARCHAR(255) NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
           alliance_id INTEGER NOT NULL REFERENCES alliances(id) ON DELETE CASCADE,
           PRIMARY KEY (material_id, alliance_id)
+        )
+      `)
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS material_countries (
+          material_id VARCHAR(255) NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+          country_id INTEGER NOT NULL REFERENCES countries(id) ON DELETE CASCADE,
+          PRIMARY KEY (material_id, country_id)
+        )
+      `)
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS material_cities (
+          material_id VARCHAR(255) NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+          city_id INTEGER NOT NULL REFERENCES cities(id) ON DELETE CASCADE,
+          PRIMARY KEY (material_id, city_id)
         )
       `)
 
@@ -422,7 +440,7 @@ export class DatabaseService {
           `${this.materialSelect(`WHERE m.id IN (${placeholders})`)}`,
           newMaterialIds
         )
-        newMaterials.push(...newMaterialsResult.rows)
+        newMaterials.push(...newMaterialsResult.rows.map(row => this.transformMaterialRow(row)))
       }
 
       return { new: newCount, updated: updatedCount, errors: errorCount, newMaterials }
@@ -435,16 +453,22 @@ export class DatabaseService {
     }
   }
 
+  private transformMaterialRow(row: any): Material {
+    return {
+      ...row,
+      countries: row.countries_data || [],
+      cities: row.cities_data || [],
+    }
+  }
+
   async getAllMaterials(): Promise<Material[]> {
     const result = await pool.query(this.materialSelect())
- 
-    return result.rows
+    return result.rows.map(row => this.transformMaterialRow(row))
   }
 
   async getMaterialsByStatus(status: string): Promise<Material[]> {
     const result = await pool.query(this.materialSelect('WHERE m.status = $1'), [status])
- 
-    return result.rows
+    return result.rows.map(row => this.transformMaterialRow(row))
   }
 
   async getMaterialsPaginated(options: {
@@ -529,14 +553,22 @@ export class DatabaseService {
 
     // Country filter
     if (options.countryIds && options.countryIds.length > 0) {
-      conditions.push(`m.country_id = ANY($${paramIndex}::int[])`)
+      conditions.push(`EXISTS (
+        SELECT 1 FROM material_countries mc 
+        WHERE mc.material_id = m.id 
+        AND mc.country_id = ANY($${paramIndex}::int[])
+      )`)
       params.push(options.countryIds)
       paramIndex++
     }
 
     // City filter
     if (options.cityIds && options.cityIds.length > 0) {
-      conditions.push(`m.city_id = ANY($${paramIndex}::int[])`)
+      conditions.push(`EXISTS (
+        SELECT 1 FROM material_cities mci 
+        WHERE mci.material_id = m.id 
+        AND mci.city_id = ANY($${paramIndex}::int[])
+      )`)
       params.push(options.cityIds)
       paramIndex++
     }
@@ -569,7 +601,7 @@ export class DatabaseService {
     )
 
     return {
-      materials: materialsResult.rows,
+      materials: materialsResult.rows.map(row => this.transformMaterialRow(row)),
       total,
       page,
       pageSize,
@@ -579,7 +611,7 @@ export class DatabaseService {
 
   async getMaterialById(id: string): Promise<Material | null> {
     const result = await pool.query(this.materialSelect('WHERE m.id = $1'), [id])
-    return result.rows[0] || null
+    return result.rows[0] ? this.transformMaterialRow(result.rows[0]) : null
   }
 
   async getTaxonomy(): Promise<{
@@ -779,38 +811,12 @@ export class DatabaseService {
     themeIds?: number[]
     tagIds?: number[]
     allianceIds?: number[]
-    countryId?: number | null
-    cityId?: number | null
+    countryIds?: number[]
+    cityIds?: number[]
   }): Promise<void> {
     const client = await pool.connect()
     try {
       await client.query('BEGIN')
-
-      const shouldUpdateLocation = data.countryId !== undefined || data.cityId !== undefined
-      if (shouldUpdateLocation) {
-        let finalCountryId = data.countryId ?? null
-        let finalCityId = data.cityId ?? null
-
-        if (finalCityId !== null) {
-          const cityResult = await client.query('SELECT country_id FROM cities WHERE id = $1', [finalCityId])
-          const cityRow = cityResult.rows[0]
-          if (!cityRow) {
-            throw new Error('Указанный город не найден')
-          }
-          const cityCountryId: number = cityRow.country_id
-          if (finalCountryId === null) {
-            finalCountryId = cityCountryId
-          } else if (finalCountryId !== cityCountryId) {
-            throw new Error('Город не принадлежит выбранной стране')
-          }
-        }
-
-        if (finalCountryId === null) {
-          finalCityId = null
-        }
-
-        await client.query('UPDATE materials SET country_id = $1, city_id = $2 WHERE id = $3', [finalCountryId, finalCityId, materialId])
-      }
 
       if (Array.isArray(data.categoryIds)) {
         await client.query('DELETE FROM material_categories WHERE material_id = $1', [materialId])
@@ -848,6 +854,26 @@ export class DatabaseService {
           await client.query(
             'INSERT INTO material_alliances (material_id, alliance_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
             [materialId, allianceId]
+          )
+        }
+      }
+
+      if (Array.isArray(data.countryIds)) {
+        await client.query('DELETE FROM material_countries WHERE material_id = $1', [materialId])
+        for (const countryId of data.countryIds) {
+          await client.query(
+            'INSERT INTO material_countries (material_id, country_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+            [materialId, countryId]
+          )
+        }
+      }
+
+      if (Array.isArray(data.cityIds)) {
+        await client.query('DELETE FROM material_cities WHERE material_id = $1', [materialId])
+        for (const cityId of data.cityIds) {
+          await client.query(
+            'INSERT INTO material_cities (material_id, city_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+            [materialId, cityId]
           )
         }
       }
@@ -1029,10 +1055,10 @@ export class DatabaseService {
 
     if (updates.length > 0) {
       values.push(id)
-      await pool.query(
+    await pool.query(
         `UPDATE materials SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
         values
-      )
+    )
     }
   }
 

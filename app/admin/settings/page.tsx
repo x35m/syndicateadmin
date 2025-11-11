@@ -15,9 +15,24 @@ interface Settings {
   geminiApiKey: string
   claudeApiKey: string
   aiProvider: 'gemini' | 'claude'
+  geminiModel: string
+  claudeModel: string
   analysisPrompt: string
   summaryPrompt: string
 }
+
+const GEMINI_MODELS = [
+  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (быстрая, дешевая)' },
+  { value: 'gemini-2.0-flash-exp', label: 'Gemini 2.0 Flash Experimental' },
+  { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro (мощная)' },
+  { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
+]
+
+const CLAUDE_MODELS = [
+  { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku (самый дешевый)' },
+  { value: 'claude-3-5-sonnet-20240620', label: 'Claude 3.5 Sonnet (баланс)' },
+  { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus (самый мощный)' },
+]
 
 export default function SettingsPage() {
   const defaultAnalysisPrompt = `Ты - аналитик новостного контента. Проанализируй статью и предоставь структурированный результат.
@@ -72,6 +87,8 @@ export default function SettingsPage() {
     geminiApiKey: '',
     claudeApiKey: '',
     aiProvider: 'gemini',
+    geminiModel: 'gemini-2.5-flash',
+    claudeModel: 'claude-3-haiku-20240307',
     analysisPrompt: defaultAnalysisPrompt,
     summaryPrompt: defaultSummaryPrompt,
   })
@@ -92,6 +109,8 @@ export default function SettingsPage() {
           geminiApiKey: result.data.geminiApiKey || '',
           claudeApiKey: result.data.claudeApiKey || '',
           aiProvider: result.data.aiProvider || 'gemini',
+          geminiModel: result.data.geminiModel || 'gemini-2.5-flash',
+          claudeModel: result.data.claudeModel || 'claude-3-haiku-20240307',
           analysisPrompt: result.data.analysisPrompt || defaultAnalysisPrompt,
           summaryPrompt: result.data.summaryPrompt || defaultSummaryPrompt,
         })
@@ -191,58 +210,105 @@ export default function SettingsPage() {
               </div>
 
               {settings.aiProvider === 'gemini' && (
-                <div className="space-y-2">
-                  <Label htmlFor="geminiApiKey">API ключ Gemini</Label>
-                  <Input
-                    id="geminiApiKey"
-                    type="password"
-                    placeholder="AIzaSy..."
-                    value={settings.geminiApiKey}
-                    onChange={(e) =>
-                      setSettings({ ...settings, geminiApiKey: e.target.value })
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    API ключ можно получить на{' '}
-                    <a
-                      href="https://aistudio.google.com/app/apikey"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary hover:underline"
-                    >
-                      aistudio.google.com
-                    </a>
-                  </p>
-                </div>
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="geminiApiKey">API ключ Gemini</Label>
+                    <Input
+                      id="geminiApiKey"
+                      type="password"
+                      placeholder="AIzaSy..."
+                      value={settings.geminiApiKey}
+                      onChange={(e) =>
+                        setSettings({ ...settings, geminiApiKey: e.target.value })
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      API ключ можно получить на{' '}
+                      <a
+                        href="https://aistudio.google.com/app/apikey"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline"
+                      >
+                        aistudio.google.com
+                      </a>
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="geminiModel">Модель Gemini</Label>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" className="w-full justify-between">
+                          {GEMINI_MODELS.find(m => m.value === settings.geminiModel)?.label || settings.geminiModel}
+                          <ChevronDown className="ml-2 h-4 w-4 opacity-50" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        {GEMINI_MODELS.map((model) => (
+                          <DropdownMenuItem
+                            key={model.value}
+                            onClick={() => setSettings({ ...settings, geminiModel: model.value })}
+                          >
+                            {model.label}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </>
               )}
 
               {settings.aiProvider === 'claude' && (
-                <div className="space-y-2">
-                  <Label htmlFor="claudeApiKey">API ключ Claude</Label>
-                  <Input
-                    id="claudeApiKey"
-                    type="password"
-                    placeholder="sk-ant-..."
-                    value={settings.claudeApiKey}
-                    onChange={(e) =>
-                      setSettings({ ...settings, claudeApiKey: e.target.value })
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    API ключ можно получить на{' '}
-                    <a
-                      href="https://console.anthropic.com/"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary hover:underline"
-                    >
-                      console.anthropic.com
-                    </a>
-                    . Не забудьте пополнить баланс минимум на $5-10 для старта.
-                    <br />
-                    Используется модель Claude Haiku (самый дешевый вариант) - ~$0.35-0.40/день для 400 статей.
-                  </p>
-                </div>
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="claudeApiKey">API ключ Claude</Label>
+                    <Input
+                      id="claudeApiKey"
+                      type="password"
+                      placeholder="sk-ant-..."
+                      value={settings.claudeApiKey}
+                      onChange={(e) =>
+                        setSettings({ ...settings, claudeApiKey: e.target.value })
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      API ключ можно получить на{' '}
+                      <a
+                        href="https://console.anthropic.com/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline"
+                      >
+                        console.anthropic.com
+                      </a>
+                      . Не забудьте пополнить баланс минимум на $5-10 для старта.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="claudeModel">Модель Claude</Label>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" className="w-full justify-between">
+                          {CLAUDE_MODELS.find(m => m.value === settings.claudeModel)?.label || settings.claudeModel}
+                          <ChevronDown className="ml-2 h-4 w-4 opacity-50" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        {CLAUDE_MODELS.map((model) => (
+                          <DropdownMenuItem
+                            key={model.value}
+                            onClick={() => setSettings({ ...settings, claudeModel: model.value })}
+                          >
+                            {model.label}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    <p className="text-xs text-muted-foreground">
+                      Haiku - ~$0.35-0.40/день для 400 статей. Sonnet дороже, но качественнее.
+                    </p>
+                  </div>
+                </>
               )}
 
               <div className="space-y-2">

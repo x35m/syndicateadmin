@@ -12,16 +12,16 @@ export async function POST(request: Request) {
       themeIds,
       tagIds,
       allianceIds,
-      countryId,
-      cityId,
+      countryIds,
+      cityIds,
     } = body as {
       materialId?: string
       categoryIds?: number[] | string[]
       themeIds?: number[] | string[]
       tagIds?: number[] | string[]
       allianceIds?: number[] | string[]
-      countryId?: number | string | null
-      cityId?: number | string | null
+      countryIds?: number[] | string[]
+      cityIds?: number[] | string[]
     }
 
     if (!materialId) {
@@ -40,23 +40,13 @@ export async function POST(request: Request) {
       return parsed
     }
 
-    const parseNullableNumber = (value: number | string | null | undefined, label: string) => {
-      if (value === undefined) return undefined
-      if (value === null || value === '') return null
-      const num = Number(value)
-      if (Number.isNaN(num)) {
-        throw new Error(`Некорректный идентификатор для ${label}`)
-      }
-      return num
-    }
-
     const normalized = {
       categoryIds: parseIds(categoryIds, 'категорий'),
       themeIds: parseIds(themeIds, 'тем'),
       tagIds: parseIds(tagIds, 'тегов'),
       allianceIds: parseIds(allianceIds, 'политических союзов'),
-      countryId: parseNullableNumber(countryId, 'страны'),
-      cityId: parseNullableNumber(cityId, 'города'),
+      countryIds: parseIds(countryIds, 'стран'),
+      cityIds: parseIds(cityIds, 'городов'),
     }
 
     await db.updateMaterialTaxonomy(materialId, normalized)

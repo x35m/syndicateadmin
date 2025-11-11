@@ -65,13 +65,11 @@ const DEFAULT_TAXONOMY_PROMPTS: Record<PromptType, string> = {
   city: 'Укажи город, если он явно присутствует в материале и важен для контекста.',
 }
 
-const GEMINI_MODEL = 'gemini-2.5-flash'
-const CLAUDE_MODEL = 'claude-3-haiku-20240307' // Самый дешевый вариант Claude
 const MAX_CONTENT_LENGTH = 15000
 
 type AIProvider = 'gemini' | 'claude'
 
-async function callGemini(apiKey: string, prompt: string) {
+async function callGemini(apiKey: string, model: string, prompt: string) {
   const requestBody = {
     contents: [
       {
@@ -86,7 +84,7 @@ async function callGemini(apiKey: string, prompt: string) {
   }
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     {
       method: 'POST',
       headers: {
@@ -111,14 +109,14 @@ async function callGemini(apiKey: string, prompt: string) {
   )
 }
 
-async function callClaude(apiKey: string, prompt: string) {
+async function callClaude(apiKey: string, model: string, prompt: string) {
   const anthropic = new Anthropic({
     apiKey: apiKey,
   })
 
   try {
     const message = await anthropic.messages.create({
-      model: CLAUDE_MODEL,
+      model: model,
       max_tokens: 4096,
       messages: [
         {
@@ -241,6 +239,8 @@ export async function POST(request: Request) {
     const aiProvider = (settings['ai_provider'] || 'gemini') as AIProvider
     const geminiApiKey = settings['gemini_api_key']
     const claudeApiKey = settings['claude_api_key']
+    const geminiModel = settings['gemini_model'] || 'gemini-2.5-flash'
+    const claudeModel = settings['claude_model'] || 'claude-3-haiku-20240307'
     const analysisPrompt = settings['analysis_prompt'] || DEFAULT_ANALYSIS_PROMPT
     const taxonomySystemPrompt = settings['taxonomy_system_prompt']
     const taxonomyFormatPrompt = settings['taxonomy_format_prompt']
@@ -336,9 +336,9 @@ export async function POST(request: Request) {
     let textResponse: string
     try {
       if (aiProvider === 'claude') {
-        textResponse = await callClaude(apiKey, prompt)
+        textResponse = await callClaude(apiKey, claudeModel, prompt)
       } else {
-        textResponse = await callGemini(apiKey, prompt)
+        textResponse = await callGemini(apiKey, geminiModel, prompt)
       }
     } catch (error) {
       console.error(`Error calling ${aiProvider} API:`, error)
