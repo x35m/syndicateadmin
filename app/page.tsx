@@ -70,24 +70,24 @@ export default function PublicMaterialsPage() {
   const pageSize = 25
 
   useEffect(() => {
-    const fetchMaterials = async () => {
-      try {
-        setLoading(true)
+  const fetchMaterials = async () => {
+    try {
+      setLoading(true)
         const response = await fetch('/api/public/materials')
-        const result = await response.json()
-
-        if (result.success) {
+      const result = await response.json()
+      
+      if (result.success) {
           setAllMaterials(result.data ?? [])
           setSources(result.filters?.sources ?? [])
           setRegions(result.filters?.regions ?? [])
           setCategories(result.filters?.categories ?? [])
-        }
-      } catch (error) {
-        console.error('Error fetching materials:', error)
-      } finally {
-        setLoading(false)
       }
+    } catch (error) {
+      console.error('Error fetching materials:', error)
+    } finally {
+      setLoading(false)
     }
+  }
 
     fetchMaterials()
   }, [])
@@ -333,8 +333,8 @@ export default function PublicMaterialsPage() {
       <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container flex h-16 items-center">
           <Link href="/" className="flex items-center space-x-2">
-            <span className="text-xl font-bold tracking-tight">
-              SYNDICATE
+            <span className="text-xl font-bold tracking-tight uppercase">
+              MEDIA SYNDICATE
             </span>
           </Link>
         </div>
@@ -342,22 +342,17 @@ export default function PublicMaterialsPage() {
 
       <div className="min-h-screen bg-background py-10">
         <div className="container space-y-6">
-          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <h1 className="text-3xl font-bold">Материалы</h1>
-              <p className="text-muted-foreground mt-2">
+          <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
+            <div className="max-w-2xl space-y-4">
+              <p className="text-muted-foreground">
                 Свежая аналитика и новости из проверенных источников
               </p>
-            </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" className="min-w-[170px] justify-between">
-                    <span>
-                      <Filter className="mr-2 h-4 w-4" />
-                      Источники
-                    </span>
+                    <span>Источники</span>
                     <Badge
                       variant={selectedSources.length > 0 ? 'default' : 'secondary'}
                       className="ml-2"
@@ -381,7 +376,7 @@ export default function PublicMaterialsPage() {
                   {sourceCounts.options.length === 0 ? (
                     <div className="px-2 py-1.5 text-xs text-muted-foreground">
                       Источники не найдены
-                    </div>
+            </div>
                   ) : (
                     sourceCounts.options.map((option) => (
                       <DropdownMenuCheckboxItem
@@ -403,10 +398,7 @@ export default function PublicMaterialsPage() {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" className="min-w-[170px] justify-between">
-                    <span>
-                      <Filter className="mr-2 h-4 w-4" />
-                      Регионы
-                    </span>
+                    <span>Регионы</span>
                     <Badge
                       variant={selectedRegions.length > 0 ? 'default' : 'secondary'}
                       className="ml-2"
@@ -414,7 +406,7 @@ export default function PublicMaterialsPage() {
                       {selectedRegions.length > 0
                         ? selectedRegions.length
                         : regionCounts.total}
-                    </Badge>
+                      </Badge>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-64">
@@ -433,7 +425,7 @@ export default function PublicMaterialsPage() {
                     </div>
                   ) : (
                     regionCounts.options.map((option) => (
-                      <DropdownMenuCheckboxItem
+                    <DropdownMenuCheckboxItem
                         key={option.value}
                         checked={selectedRegions.includes(option.value)}
                         onCheckedChange={(checked) =>
@@ -452,10 +444,7 @@ export default function PublicMaterialsPage() {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" className="min-w-[170px] justify-between">
-                    <span>
-                      <Filter className="mr-2 h-4 w-4" />
-                      Категории
-                    </span>
+                    <span>Категории</span>
                     <Badge
                       variant={
                         selectedCategories.length > 0 ? 'default' : 'secondary'
@@ -494,7 +483,7 @@ export default function PublicMaterialsPage() {
                       >
                         <span className="truncate">{option.label}</span>
                         <Badge variant="secondary">{option.count}</Badge>
-                      </DropdownMenuCheckboxItem>
+                    </DropdownMenuCheckboxItem>
                     ))
                   )}
                 </DropdownMenuContent>
@@ -508,6 +497,7 @@ export default function PublicMaterialsPage() {
               >
                 Очистить фильтры
               </Button>
+            </div>
             </div>
           </div>
 
@@ -560,7 +550,7 @@ export default function PublicMaterialsPage() {
             </div>
           )}
 
-          <Card>
+          <Card className="border-none bg-muted/30">
             <CardHeader>
               <CardTitle>
                 {loading
@@ -588,16 +578,16 @@ export default function PublicMaterialsPage() {
               ) : (
                 <div className="space-y-4">
                   {paginatedMaterials.map((material) => (
-                    <Card
-                      key={material.id}
-                      className="cursor-pointer overflow-hidden transition-shadow hover:shadow-md"
+                    <Card 
+                      key={material.id} 
+                      className="cursor-pointer overflow-hidden border border-transparent bg-background transition-colors duration-300 hover:bg-muted/70"
                       onClick={() => openMaterialDialog(material)}
                     >
                       <CardContent className="p-6">
                         <div className="flex flex-col gap-4 md:flex-row">
                           {material.thumbnail && (
-                            <img
-                              src={material.thumbnail}
+                            <img 
+                              src={material.thumbnail} 
                               alt={material.title}
                               className="h-16 w-16 rounded object-cover md:h-20 md:w-20"
                             />
@@ -713,7 +703,7 @@ export default function PublicMaterialsPage() {
               </div>
             </DialogDescription>
           </DialogHeader>
-
+ 
           {(selectedMaterial?.categories?.length ||
             selectedMaterial?.themes?.length ||
             selectedMaterial?.tags?.length ||
@@ -726,17 +716,17 @@ export default function PublicMaterialsPage() {
                     <span className="font-medium text-foreground">
                       Категории:
                     </span>
-                    {selectedMaterial.categories.map((category) => (
+                  {selectedMaterial.categories.map((category) => (
                       <Badge
                         key={`category-${category.id}`}
                         variant="secondary"
                         className="text-xs font-medium"
                       >
-                        {category.name}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
+                      {category.name}
+                    </Badge>
+                  ))}
+                </div>
+              )}
 
               {selectedMaterial?.themes &&
                 selectedMaterial.themes.length > 0 && (
@@ -744,17 +734,17 @@ export default function PublicMaterialsPage() {
                     <span className="font-medium text-foreground">
                       Темы:
                     </span>
-                    {selectedMaterial.themes.map((theme) => (
+                  {selectedMaterial.themes.map((theme) => (
                       <Badge
                         key={`theme-${theme.id}`}
                         variant="secondary"
                         className="text-xs font-medium"
                       >
-                        {theme.name}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
+                      {theme.name}
+                    </Badge>
+                  ))}
+                </div>
+              )}
 
               {selectedMaterial?.tags && selectedMaterial.tags.length > 0 && (
                 <div className="flex flex-wrap items-center gap-2">
@@ -786,13 +776,13 @@ export default function PublicMaterialsPage() {
               {selectedMaterial.summary}
             </div>
           )}
-
+          
           {(selectedMaterial?.link || selectedMaterial?.source) && (
             <div className="mt-6 border-t pt-4">
               <Button variant="outline" size="sm" asChild>
-                <a
+                <a 
                   href={selectedMaterial.link || selectedMaterial.source || '#'}
-                  target="_blank"
+                  target="_blank" 
                   rel="noopener noreferrer"
                   className="flex items-center gap-2"
                 >
