@@ -348,14 +348,14 @@ export async function POST(request: Request) {
     const ensureCountry = async (name: string) => {
       const key = normalizeName(name)
       if (key.length === 0) return null
-      let country = countryByName.get(key)
-      if (country) return country
+      const existing = countryByName.get(key)
+      if (existing) return existing
 
       const created = await db.createTaxonomyItem('country', name)
-      country = { ...created, cities: [] }
-      countryByName.set(key, country)
-      taxonomyData.countries.push(country)
-      return country
+      const enriched = { ...created, cities: [] as City[] }
+      countryByName.set(key, enriched)
+      taxonomyData.countries.push(enriched)
+      return enriched
     }
 
     const ensureCity = async (name: string, countryIdHint?: number | null) => {
@@ -379,46 +379,44 @@ export async function POST(request: Request) {
         countryId: countryIdHint,
       })
 
-      city = created
+      const enriched = created as City
       if (!cityByName.has(key)) {
         cityByName.set(key, [])
       }
-      cityByName.get(key)?.push(city)
+      cityByName.get(key)!.push(enriched)
 
       const parentCountry = taxonomyData.countries.find(
         (country) => country.id === countryIdHint
       )
       if (parentCountry) {
-        parentCountry.cities = [...(parentCountry.cities ?? []), city]
+        parentCountry.cities = [...(parentCountry.cities ?? []), enriched]
       }
 
-      return city
+      return enriched
     }
 
     const ensureTheme = async (name: string) => {
       const key = normalizeName(name)
       if (key.length === 0) return null
-      let theme = themeByName.get(key)
-      if (theme) return theme
+      const existing = themeByName.get(key)
+      if (existing) return existing
 
       const created = await db.createTaxonomyItem('theme', name)
-      theme = created
-      themeByName.set(key, theme)
-      taxonomyData.themes.push(theme)
-      return theme
+      themeByName.set(key, created)
+      taxonomyData.themes.push(created)
+      return created
     }
 
     const ensureTag = async (name: string) => {
       const key = normalizeName(name)
       if (key.length === 0) return null
-      let tag = tagByName.get(key)
-      if (tag) return tag
+      const existing = tagByName.get(key)
+      if (existing) return existing
 
       const created = await db.createTaxonomyItem('tag', name)
-      tag = created
-      tagByName.set(key, tag)
-      taxonomyData.tags.push(tag)
-      return tag
+      tagByName.set(key, created)
+      taxonomyData.tags.push(created)
+      return created
     }
 
     const taxonomyUpdatePayload: {
