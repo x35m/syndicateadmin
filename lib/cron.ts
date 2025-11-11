@@ -1,6 +1,7 @@
 import cron from 'node-cron'
 import { db } from './db'
 import { rssParser } from './rss-parser'
+import { broadcastNewMaterial, broadcastSyncProgress, broadcastSyncComplete } from './sse-manager'
 
 let isRunning = false
 
@@ -47,6 +48,19 @@ export async function fetchAndSaveMaterials() {
         totalNew += stats.new
         totalUpdated += stats.updated
         totalErrors += stats.errors
+
+        // Broadcast progress for this feed
+        broadcastSyncProgress({
+          feed: feed.title || feed.url,
+          new: stats.new,
+          updated: stats.updated,
+          total: materials.length,
+        })
+        
+        // Broadcast new materials via SSE
+        for (const newMaterial of stats.newMaterials) {
+          broadcastNewMaterial(newMaterial)
+        }
         
         console.log(`[${new Date().toISOString()}] ${feed.title}: ${materials.length} fetched, ${stats.new} new, ${stats.updated} updated`)
       } catch (feedError) {
@@ -54,6 +68,13 @@ export async function fetchAndSaveMaterials() {
         totalErrors++
       }
     }
+    
+    // Broadcast sync completion
+    broadcastSyncComplete({
+      new: totalNew,
+      updated: totalUpdated,
+      errors: totalErrors,
+    })
     
     console.log(`[${new Date().toISOString()}] ✅ Sync completed:`)
     console.log(`  📥 New materials: ${totalNew}`)

@@ -274,6 +274,46 @@ export class DatabaseService {
       await client.query(`
         CREATE INDEX IF NOT EXISTS idx_materials_city ON materials(city_id)
       `)
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_materials_summary ON materials(summary) WHERE summary IS NOT NULL
+      `)
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_materials_source ON materials(source)
+      `)
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_material_categories_material ON material_categories(material_id)
+      `)
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_material_categories_category ON material_categories(category_id)
+      `)
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_material_themes_material ON material_themes(material_id)
+      `)
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_material_themes_theme ON material_themes(theme_id)
+      `)
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_material_tags_material ON material_tags(material_id)
+      `)
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_material_tags_tag ON material_tags(tag_id)
+      `)
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_material_alliances_material ON material_alliances(material_id)
+      `)
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_material_alliances_alliance ON material_alliances(alliance_id)
+      `)
       
       // Таблица для настроек
       await client.query(`
@@ -291,13 +331,14 @@ export class DatabaseService {
     }
   }
 
-  async saveMaterials(materials: Material[]): Promise<{ new: number; updated: number; errors: number }> {
-    if (materials.length === 0) return { new: 0, updated: 0, errors: 0 }
+  async saveMaterials(materials: Material[]): Promise<{ new: number; updated: number; errors: number; newMaterials: Material[] }> {
+    if (materials.length === 0) return { new: 0, updated: 0, errors: 0, newMaterials: [] }
 
     const client = await pool.connect()
     let newCount = 0
     let updatedCount = 0
     let errorCount = 0
+    const newMaterialIds: string[] = []
 
     try {
       await client.query('BEGIN')
@@ -339,6 +380,7 @@ export class DatabaseService {
             updatedCount++
           } else {
             newCount++
+            newMaterialIds.push(material.id)
           }
         } catch (error) {
           console.error(`Error saving material ${material.id}:`, error)
@@ -347,7 +389,19 @@ export class DatabaseService {
       }
 
       await client.query('COMMIT')
-      return { new: newCount, updated: updatedCount, errors: errorCount }
+
+      // Load new materials with full taxonomy
+      const newMaterials: Material[] = []
+      if (newMaterialIds.length > 0) {
+        const placeholders = newMaterialIds.map((_, i) => `$${i + 1}`).join(',')
+        const newMaterialsResult = await pool.query(
+          `${this.materialSelect(`WHERE m.id IN (${placeholders})`)}`,
+          newMaterialIds
+        )
+        newMaterials.push(...newMaterialsResult.rows)
+      }
+
+      return { new: newCount, updated: updatedCount, errors: errorCount, newMaterials }
     } catch (error) {
       await client.query('ROLLBACK')
       console.error('Error in saveMaterials:', error)
@@ -367,6 +421,136 @@ export class DatabaseService {
     const result = await pool.query(this.materialSelect('WHERE m.status = $1'), [status])
  
     return result.rows
+  }
+
+  async getMaterialsPaginated(options: {
+    page?: number
+    pageSize?: number
+    status?: string
+    search?: string
+    categoryIds?: number[]
+    themeIds?: number[]
+    tagIds?: number[]
+    allianceIds?: number[]
+    countryIds?: number[]
+    cityIds?: number[]
+    feedNames?: string[]
+    onlyWithSummary?: boolean
+  }): Promise<{ materials: Material[]; total: number; page: number; pageSize: number; totalPages: number }> {
+    const page = options.page || 1
+    const pageSize = options.pageSize || 50
+    const offset = (page - 1) * pageSize
+
+    const conditions: string[] = []
+    const params: any[] = []
+    let paramIndex = 1
+
+    // Status filter
+    if (options.status && options.status !== 'all') {
+      conditions.push(`m.status = $${paramIndex}`)
+      params.push(options.status)
+      paramIndex++
+    }
+
+    // Search filter
+    if (options.search && options.search.trim()) {
+      conditions.push(`(m.title ILIKE $${paramIndex} OR m.content ILIKE $${paramIndex} OR m.full_content ILIKE $${paramIndex})`)
+      params.push(`%${options.search.trim()}%`)
+      paramIndex++
+    }
+
+    // Category filter
+    if (options.categoryIds && options.categoryIds.length > 0) {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM material_categories mc 
+        WHERE mc.material_id = m.id 
+        AND mc.category_id = ANY($${paramIndex}::int[])
+      )`)
+      params.push(options.categoryIds)
+      paramIndex++
+    }
+
+    // Theme filter
+    if (options.themeIds && options.themeIds.length > 0) {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM material_themes mth 
+        WHERE mth.material_id = m.id 
+        AND mth.theme_id = ANY($${paramIndex}::int[])
+      )`)
+      params.push(options.themeIds)
+      paramIndex++
+    }
+
+    // Tag filter
+    if (options.tagIds && options.tagIds.length > 0) {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM material_tags mtg 
+        WHERE mtg.material_id = m.id 
+        AND mtg.tag_id = ANY($${paramIndex}::int[])
+      )`)
+      params.push(options.tagIds)
+      paramIndex++
+    }
+
+    // Alliance filter
+    if (options.allianceIds && options.allianceIds.length > 0) {
+      conditions.push(`EXISTS (
+        SELECT 1 FROM material_alliances ma 
+        WHERE ma.material_id = m.id 
+        AND ma.alliance_id = ANY($${paramIndex}::int[])
+      )`)
+      params.push(options.allianceIds)
+      paramIndex++
+    }
+
+    // Country filter
+    if (options.countryIds && options.countryIds.length > 0) {
+      conditions.push(`m.country_id = ANY($${paramIndex}::int[])`)
+      params.push(options.countryIds)
+      paramIndex++
+    }
+
+    // City filter
+    if (options.cityIds && options.cityIds.length > 0) {
+      conditions.push(`m.city_id = ANY($${paramIndex}::int[])`)
+      params.push(options.cityIds)
+      paramIndex++
+    }
+
+    // Feed filter
+    if (options.feedNames && options.feedNames.length > 0) {
+      conditions.push(`(f.title = ANY($${paramIndex}::text[]) OR m.source = ANY($${paramIndex}::text[]))`)
+      params.push(options.feedNames)
+      paramIndex++
+    }
+
+    // Summary filter
+    if (options.onlyWithSummary) {
+      conditions.push(`m.summary IS NOT NULL AND m.summary != ''`)
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+
+    // Get total count
+    const countResult = await pool.query(
+      `SELECT COUNT(*) as total FROM materials m LEFT JOIN feeds f ON m.source = f.url ${whereClause}`,
+      params
+    )
+    const total = parseInt(countResult.rows[0].total)
+
+    // Get paginated materials
+    const materialsResult = await pool.query(
+      `${this.materialSelect(whereClause)} LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+      [...params, pageSize, offset]
+    )
+
+    return {
+      materials: materialsResult.rows,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    }
   }
 
   async getMaterialById(id: string): Promise<Material | null> {

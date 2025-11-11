@@ -1,6 +1,6 @@
 'use client'
 
-import { ChangeEvent, useEffect, useMemo, useState } from 'react'
+import { ChangeEvent, useEffect, useMemo, useState, useCallback } from 'react'
 import { Material, Category, Theme, Tag, Alliance, Country, City } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -177,7 +177,9 @@ export default function MaterialsPage() {
   const [pendingAction, setPendingAction] = useState<BulkAction>(null)
   const [stats, setStats] = useState<MaterialsStats>({ total: 0, new: 0, processed: 0, archived: 0 })
   const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(25)
+  const [pageSize, setPageSize] = useState(50)
+  const [totalPages, setTotalPages] = useState(1)
+  const [total, setTotal] = useState(0)
   const [generatingSummary, setGeneratingSummary] = useState<Set<string>>(new Set())
   const [taxonomy, setTaxonomy] = useState<{
     categories: Category[]
@@ -231,85 +233,6 @@ export default function MaterialsPage() {
     return list.sort((a, b) => a.label.localeCompare(b.label, 'ru'))
   }, [taxonomy.countries])
 
-  const filteredMaterials = useMemo(() => {
-    const query = materialFilters.search.trim().toLowerCase()
-    return materials.filter((material) => {
-      if (query) {
-        const haystack = [
-          material.title,
-          material.summary,
-          material.content,
-          material.feedName,
-          material.source,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase()
-
-        if (!haystack.includes(query)) {
-          return false
-        }
-      }
-
-      if (materialFilters.categories.length > 0) {
-        const ids = material.categories?.map((item) => item.id) ?? []
-        if (!materialFilters.categories.some((id) => ids.includes(id))) {
-          return false
-        }
-      }
-
-      if (materialFilters.themes.length > 0) {
-        const ids = material.themes?.map((item) => item.id) ?? []
-        if (!materialFilters.themes.some((id) => ids.includes(id))) {
-          return false
-        }
-      }
-
-      if (materialFilters.tags.length > 0) {
-        const ids = material.tags?.map((item) => item.id) ?? []
-        if (!materialFilters.tags.some((id) => ids.includes(id))) {
-          return false
-        }
-      }
-
-      if (materialFilters.alliances.length > 0) {
-        const ids = material.alliances?.map((item) => item.id) ?? []
-        if (!materialFilters.alliances.some((id) => ids.includes(id))) {
-          return false
-        }
-      }
-
-      if (materialFilters.countries.length > 0) {
-        const countryId = material.country?.id
-        if (!countryId || !materialFilters.countries.includes(countryId)) {
-          return false
-        }
-      }
-
-      if (materialFilters.cities.length > 0) {
-        const cityId = material.city?.id
-        if (!cityId || !materialFilters.cities.includes(cityId)) {
-          return false
-        }
-      }
-
-      if (materialFilters.feeds.length > 0) {
-        const feedName = material.feedName || material.source || ''
-        if (!materialFilters.feeds.includes(feedName)) {
-          return false
-        }
-      }
-
-      if (materialFilters.onlyWithSummary) {
-        if (!material.summary || material.summary.trim().length === 0) {
-          return false
-        }
-      }
-
-      return true
-    })
-  }, [materials, materialFilters])
-
   const filtersApplied = useMemo(() => {
     return (
       materialFilters.search.trim().length > 0 ||
@@ -324,30 +247,53 @@ export default function MaterialsPage() {
     )
   }, [materialFilters])
 
-  useEffect(() => {
-    setSelectedIds(new Set())
-    setCurrentPage(1)
-  }, [materialFilters])
-
-  useEffect(() => {
-    const maxPage = Math.max(1, Math.ceil(filteredMaterials.length / pageSize))
-    if (currentPage > maxPage) {
-      setCurrentPage(maxPage)
-    }
-  }, [filteredMaterials.length, pageSize, currentPage])
-
-  const fetchMaterials = async (status: string = 'all') => {
+  const fetchMaterials = useCallback(async (status: string = 'all', page: number = currentPage) => {
     setLoading(true)
     try {
-      const url = status !== 'all'
-        ? `/api/materials?status=${status}`
-        : '/api/materials'
+      const params = new URLSearchParams()
+      params.set('status', status)
+      params.set('page', page.toString())
+      params.set('pageSize', pageSize.toString())
+      
+      // Add filters
+      if (materialFilters.search) {
+        params.set('search', materialFilters.search)
+      }
+      if (materialFilters.categories.length > 0) {
+        params.set('categoryIds', materialFilters.categories.join(','))
+      }
+      if (materialFilters.themes.length > 0) {
+        params.set('themeIds', materialFilters.themes.join(','))
+      }
+      if (materialFilters.tags.length > 0) {
+        params.set('tagIds', materialFilters.tags.join(','))
+      }
+      if (materialFilters.alliances.length > 0) {
+        params.set('allianceIds', materialFilters.alliances.join(','))
+      }
+      if (materialFilters.countries.length > 0) {
+        params.set('countryIds', materialFilters.countries.join(','))
+      }
+      if (materialFilters.cities.length > 0) {
+        params.set('cityIds', materialFilters.cities.join(','))
+      }
+      if (materialFilters.feeds.length > 0) {
+        params.set('feedNames', materialFilters.feeds.join(','))
+      }
+      if (materialFilters.onlyWithSummary) {
+        params.set('onlyWithSummary', 'true')
+      }
 
-      const response = await fetch(url)
+      const response = await fetch(`/api/materials?${params.toString()}`)
       const result = await response.json()
 
       if (result.success) {
         setMaterials(result.data)
+        if (result.pagination) {
+          setTotalPages(result.pagination.totalPages)
+          setTotal(result.pagination.total)
+          setCurrentPage(result.pagination.page)
+        }
         setStats(result.stats || { total: 0, new: 0, processed: 0, archived: 0 })
       }
     } catch (error) {
@@ -355,7 +301,144 @@ export default function MaterialsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [materialFilters, pageSize, currentPage])
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+    setSelectedIds(new Set())
+  }, [materialFilters, filter])
+
+  // Fetch materials when filters or page change
+  useEffect(() => {
+    fetchMaterials(filter, currentPage)
+  }, [fetchMaterials, filter, currentPage])
+
+  // SSE connection for real-time updates
+  useEffect(() => {
+    const eventSource = new EventSource(`/api/materials/stream?status=${filter}`)
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        
+        if (data.type === 'new-material') {
+          // Add new material to the list if it matches current filters
+          const newMaterial = data.data
+          
+          // Check if material matches current filters
+          let matches = true
+          
+          if (materialFilters.categories.length > 0) {
+            const ids = newMaterial.categories?.map((item: any) => item.id) ?? []
+            if (!materialFilters.categories.some((id) => ids.includes(id))) {
+              matches = false
+            }
+          }
+          
+          if (matches && materialFilters.themes.length > 0) {
+            const ids = newMaterial.themes?.map((item: any) => item.id) ?? []
+            if (!materialFilters.themes.some((id) => ids.includes(id))) {
+              matches = false
+            }
+          }
+          
+          if (matches && materialFilters.tags.length > 0) {
+            const ids = newMaterial.tags?.map((item: any) => item.id) ?? []
+            if (!materialFilters.tags.some((id) => ids.includes(id))) {
+              matches = false
+            }
+          }
+          
+          if (matches && materialFilters.alliances.length > 0) {
+            const ids = newMaterial.alliances?.map((item: any) => item.id) ?? []
+            if (!materialFilters.alliances.some((id) => ids.includes(id))) {
+              matches = false
+            }
+          }
+          
+          if (matches && materialFilters.countries.length > 0) {
+            const countryId = newMaterial.country?.id
+            if (!countryId || !materialFilters.countries.includes(countryId)) {
+              matches = false
+            }
+          }
+          
+          if (matches && materialFilters.cities.length > 0) {
+            const cityId = newMaterial.city?.id
+            if (!cityId || !materialFilters.cities.includes(cityId)) {
+              matches = false
+            }
+          }
+          
+          if (matches && materialFilters.feeds.length > 0) {
+            const feedName = newMaterial.feedName || newMaterial.source || ''
+            if (!materialFilters.feeds.includes(feedName)) {
+              matches = false
+            }
+          }
+          
+          if (matches && materialFilters.onlyWithSummary) {
+            if (!newMaterial.summary || newMaterial.summary.trim().length === 0) {
+              matches = false
+            }
+          }
+          
+          if (matches && materialFilters.search.trim()) {
+            const query = materialFilters.search.trim().toLowerCase()
+            const haystack = [
+              newMaterial.title,
+              newMaterial.summary,
+              newMaterial.content,
+              newMaterial.feedName,
+              newMaterial.source,
+            ]
+              .filter(Boolean)
+              .join(' ')
+              .toLowerCase()
+            
+            if (!haystack.includes(query)) {
+              matches = false
+            }
+          }
+          
+          // Check status filter
+          if (filter !== 'all' && newMaterial.status !== filter) {
+            matches = false
+          }
+          
+          if (matches) {
+            // Add to beginning of list if on first page, otherwise refresh
+            if (currentPage === 1) {
+              setMaterials((prev) => [newMaterial, ...prev].slice(0, pageSize))
+              setTotal((prev) => prev + 1)
+            } else {
+              // Refresh current page
+              fetchMaterials(filter, currentPage)
+            }
+          }
+        } else if (data.type === 'sync-complete') {
+          // Refresh stats after sync
+          fetchMaterials(filter, currentPage)
+        }
+      } catch (error) {
+        console.error('Error parsing SSE message:', error)
+      }
+    }
+    
+    eventSource.onerror = (error) => {
+      console.error('SSE connection error:', error)
+      // Reconnect after 5 seconds
+      setTimeout(() => {
+        eventSource.close()
+        // Will reconnect via useEffect
+      }, 5000)
+    }
+    
+    return () => {
+      eventSource.close()
+    }
+  }, [filter, materialFilters, currentPage, pageSize, fetchMaterials])
 
   const fetchTaxonomy = async () => {
     try {
@@ -521,11 +604,10 @@ export default function MaterialsPage() {
     setIsDialogOpen(true)
   }
 
-  // Pagination logic
-  const totalPages = Math.max(1, Math.ceil(filteredMaterials.length / pageSize))
+  // Pagination logic - materials already paginated from server
+  const paginatedMaterials = materials
   const startIndex = (currentPage - 1) * pageSize
-  const endIndex = startIndex + pageSize
-  const paginatedMaterials = filteredMaterials.slice(startIndex, endIndex)
+  const endIndex = startIndex + materials.length
 
   const goToPage = (page: number) => {
     setCurrentPage(Math.max(1, Math.min(page, totalPages)))
@@ -898,7 +980,7 @@ export default function MaterialsPage() {
           <Card>
             <CardHeader>
               <CardTitle>
-                Материалы ({filteredMaterials.length}/{materials.length})
+                Материалы ({total})
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -1022,12 +1104,12 @@ export default function MaterialsPage() {
               </div>
 
               {/* Pagination Controls - Top */}
-              {!loading && filteredMaterials.length > 0 && (
+              {!loading && materials.length > 0 && (
                 <div className="flex items-center justify-between mb-4 pb-4 border-b">
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground">
-                      Показано {filteredMaterials.length === 0 ? 0 : startIndex + 1}-
-                      {Math.min(endIndex, filteredMaterials.length)} из {filteredMaterials.length}
+                      Показано {materials.length === 0 ? 0 : startIndex + 1}-
+                      {endIndex} из {total}
                     </span>
                   </div>
 
@@ -1117,7 +1199,7 @@ export default function MaterialsPage() {
                     </div>
                   ))}
                 </div>
-              ) : filteredMaterials.length === 0 ? (
+              ) : materials.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   {filtersApplied
                     ? 'Материалы по выбранным фильтрам не найдены.'
@@ -1219,12 +1301,12 @@ export default function MaterialsPage() {
               )}
 
               {/* Pagination Controls */}
-              {!loading && filteredMaterials.length > 0 && (
+              {!loading && materials.length > 0 && (
                 <div className="flex items-center justify-between mt-4 pt-4 border-t">
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground">
-                      Показано {filteredMaterials.length === 0 ? 0 : startIndex + 1}-
-                      {Math.min(endIndex, filteredMaterials.length)} из {filteredMaterials.length}
+                      Показано {materials.length === 0 ? 0 : startIndex + 1}-
+                      {endIndex} из {total}
                     </span>
                   </div>
 
@@ -1584,9 +1666,9 @@ export default function MaterialsPage() {
                       disabled={creatingTaxonomy === 'alliance'}
                     >
                       {creatingTaxonomy === 'alliance' ? 'Добавление...' : 'Добавить'}
-                    </Button>
-                  </div>
-                </div>
+                        </Button>
+                      </div>
+                    </div>
 
                     <div className="grid gap-4 md:grid-cols-2">
                       <div>
