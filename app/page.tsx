@@ -315,7 +315,52 @@ export default function PublicMaterialsPage() {
               </div>
             </DialogDescription>
           </DialogHeader>
-          
+ 
+          {(selectedMaterial?.categories?.length || selectedMaterial?.themes?.length || selectedMaterial?.tags?.length || selectedMaterial?.country || selectedMaterial?.city) && (
+            <div className="mt-4 space-y-3">
+              {selectedMaterial?.categories && selectedMaterial.categories.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="font-medium text-foreground">Категории:</span>
+                  {selectedMaterial.categories.map((category) => (
+                    <Badge key={`category-${category.id}`} variant="secondary" className="text-xs font-medium">
+                      {category.name}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+
+              {selectedMaterial?.themes && selectedMaterial.themes.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="font-medium text-foreground">Темы:</span>
+                  {selectedMaterial.themes.map((theme) => (
+                    <Badge key={`theme-${theme.id}`} variant="secondary" className="text-xs font-medium">
+                      {theme.name}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+
+              {selectedMaterial?.tags && selectedMaterial.tags.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="font-medium text-foreground">Теги:</span>
+                  {selectedMaterial.tags.map((tag) => (
+                    <Badge key={`tag-${tag.id}`} variant="outline" className="text-xs font-medium">
+                      {tag.name}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+
+              {(selectedMaterial?.country || selectedMaterial?.city) && (
+                <div className="text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground">Регион:</span>{' '}
+                  {selectedMaterial?.country?.name || '—'}
+                  {selectedMaterial?.city ? `, ${selectedMaterial.city.name}` : ''}
+                </div>
+              )}
+            </div>
+          )}
+
           {selectedMaterial?.summary && (
             <div className="mt-4 text-sm text-foreground leading-relaxed whitespace-pre-wrap">
               {selectedMaterial.summary}

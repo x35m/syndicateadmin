@@ -12,6 +12,11 @@ export interface Material {
   status: 'new' | 'processed' | 'archived'
   link?: string // Ссылка на оригинальную статью
   summary?: string // AI-генерированное саммари статьи
+  categories?: Category[]
+  themes?: Theme[]
+  tags?: Tag[]
+  country?: Country | null
+  city?: City | null
 }
 
 export interface ApiConfig {
@@ -20,4 +25,30 @@ export interface ApiConfig {
   endpoints: {
     materials: string
   }
+}
+
+export interface Category {
+  id: number
+  name: string
+}
+
+export interface Theme {
+  id: number
+  name: string
+}
+
+export interface Tag {
+  id: number
+  name: string
+}
+
+export interface Country {
+  id: number
+  name: string
+}
+
+export interface City {
+  id: number
+  name: string
+  countryId: number
 }

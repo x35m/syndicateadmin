@@ -1,5 +1,5 @@
 import { Pool } from 'pg'
-import { Material } from './types'
+import { Material, Category, Theme, Tag, Country, City } from './types'
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || process.env.DATABASE_PUBLIC_URL,
@@ -7,6 +7,76 @@ const pool = new Pool({
 })
 
 export class DatabaseService {
+  private materialSelect(whereClause?: string) {
+    return `SELECT m.id,
+                   m.title,
+                   m.content,
+                   m.full_content AS "fullContent",
+                   m.thumbnail,
+                   m.author,
+                   m.created_at AS "createdAt",
+                   m.fetched_at AS "fetchedAt",
+                   m.source,
+                   m.status,
+                   m.summary,
+                   f.title AS "feedName",
+                   country_data.country,
+                   city_data.city,
+                   categories_data.categories,
+                   themes_data.themes,
+                   tags_data.tags
+            FROM materials m
+            LEFT JOIN feeds f ON m.source = f.url
+            LEFT JOIN LATERAL (
+              SELECT json_build_object('id', c.id, 'name', c.name) AS country
+              FROM countries c
+              WHERE c.id = m.country_id
+            ) country_data ON TRUE
+            LEFT JOIN LATERAL (
+              SELECT json_build_object('id', ci.id, 'name', ci.name, 'countryId', ci.country_id) AS city
+              FROM cities ci
+              WHERE ci.id = m.city_id
+            ) city_data ON TRUE
+            LEFT JOIN LATERAL (
+              SELECT COALESCE(
+                json_agg(
+                  json_build_object('id', cat.id, 'name', cat.name)
+                  ORDER BY cat.name
+                ),
+                '[]'::json
+              ) AS categories
+              FROM material_categories mc
+              JOIN categories cat ON cat.id = mc.category_id
+              WHERE mc.material_id = m.id
+            ) categories_data ON TRUE
+            LEFT JOIN LATERAL (
+              SELECT COALESCE(
+                json_agg(
+                  json_build_object('id', th.id, 'name', th.name)
+                  ORDER BY th.name
+                ),
+                '[]'::json
+              ) AS themes
+              FROM material_themes mth
+              JOIN themes th ON th.id = mth.theme_id
+              WHERE mth.material_id = m.id
+            ) themes_data ON TRUE
+            LEFT JOIN LATERAL (
+              SELECT COALESCE(
+                json_agg(
+                  json_build_object('id', tg.id, 'name', tg.name)
+                  ORDER BY tg.name
+                ),
+                '[]'::json
+              ) AS tags
+              FROM material_tags mtg
+              JOIN tags tg ON tg.id = mtg.tag_id
+              WHERE mtg.material_id = m.id
+            ) tags_data ON TRUE
+            ${whereClause ?? ''}
+            ORDER BY m.created_at DESC`
+  }
+
   async init() {
     const client = await pool.connect()
     try {
@@ -45,6 +115,72 @@ export class DatabaseService {
         )
       `)
       
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS countries (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `)
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS cities (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          country_id INTEGER NOT NULL REFERENCES countries(id) ON DELETE CASCADE,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          UNIQUE(name, country_id)
+        )
+      `)
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS categories (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `)
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS themes (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `)
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS tags (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `)
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS material_categories (
+          material_id VARCHAR(255) NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+          category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+          PRIMARY KEY (material_id, category_id)
+        )
+      `)
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS material_themes (
+          material_id VARCHAR(255) NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+          theme_id INTEGER NOT NULL REFERENCES themes(id) ON DELETE CASCADE,
+          PRIMARY KEY (material_id, theme_id)
+        )
+      `)
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS material_tags (
+          material_id VARCHAR(255) NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+          tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+          PRIMARY KEY (material_id, tag_id)
+        )
+      `)
+
       // Миграция: добавляем новые колонки если их нет
       await client.query(`
         DO $$ 
@@ -76,6 +212,20 @@ export class DatabaseService {
           ) THEN
             ALTER TABLE materials ADD COLUMN link TEXT;
           END IF;
+
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'materials' AND column_name = 'country_id'
+          ) THEN
+            ALTER TABLE materials ADD COLUMN country_id INTEGER REFERENCES countries(id);
+          END IF;
+
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'materials' AND column_name = 'city_id'
+          ) THEN
+            ALTER TABLE materials ADD COLUMN city_id INTEGER REFERENCES cities(id);
+          END IF;
         END $$;
       `)
       
@@ -85,6 +235,14 @@ export class DatabaseService {
       
       await client.query(`
         CREATE INDEX IF NOT EXISTS idx_materials_created_at ON materials(created_at DESC)
+      `)
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_materials_country ON materials(country_id)
+      `)
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_materials_city ON materials(city_id)
       `)
       
       // Таблица для настроек
@@ -170,34 +328,174 @@ export class DatabaseService {
   }
 
   async getAllMaterials(): Promise<Material[]> {
-    const result = await pool.query(
-      `SELECT m.id, m.title, m.content, m.full_content as "fullContent", m.thumbnail, m.author, 
-              m.created_at as "createdAt", 
-              m.fetched_at as "fetchedAt", 
-              m.source, m.link, m.status, m.summary,
-              f.title as "feedName"
-       FROM materials m
-       LEFT JOIN feeds f ON m.source = f.url
-       ORDER BY m.created_at DESC`
-    )
-
+    const result = await pool.query(this.materialSelect())
+ 
     return result.rows
   }
 
   async getMaterialsByStatus(status: string): Promise<Material[]> {
-    const result = await pool.query(
-      `SELECT m.id, m.title, m.content, m.full_content as "fullContent", m.thumbnail, m.author, 
-              m.created_at as "createdAt", 
-              m.fetched_at as "fetchedAt", 
-              m.source, m.link, m.status, m.summary,
-              f.title as "feedName"
-       FROM materials m
-       LEFT JOIN feeds f ON m.source = f.url
-       WHERE m.status = $1
-       ORDER BY m.created_at DESC`,
-      [status]
-    )
+    const result = await pool.query(this.materialSelect('WHERE m.status = $1'), [status])
+ 
+    return result.rows
+  }
 
+  async getMaterialById(id: string): Promise<Material | null> {
+    const result = await pool.query(this.materialSelect('WHERE m.id = $1'), [id])
+    return result.rows[0] || null
+  }
+
+  async getTaxonomy(): Promise<{
+    categories: Category[]
+    themes: Theme[]
+    tags: Tag[]
+    countries: Array<Country & { cities: City[] }>
+  }> {
+    const [categoriesResult, themesResult, tagsResult, countriesResult, citiesResult] = await Promise.all([
+      pool.query('SELECT id, name FROM categories ORDER BY name ASC'),
+      pool.query('SELECT id, name FROM themes ORDER BY name ASC'),
+      pool.query('SELECT id, name FROM tags ORDER BY name ASC'),
+      pool.query('SELECT id, name FROM countries ORDER BY name ASC'),
+      pool.query('SELECT id, name, country_id AS "countryId" FROM cities ORDER BY name ASC'),
+    ])
+
+    const citiesByCountry = citiesResult.rows.reduce<Record<number, City[]>>((acc, city) => {
+      if (!acc[city.countryId]) {
+        acc[city.countryId] = []
+      }
+      acc[city.countryId].push(city)
+      return acc
+    }, {})
+
+    const countriesWithCities = countriesResult.rows.map((country) => ({
+      ...country,
+      cities: citiesByCountry[country.id] ?? [],
+    }))
+
+    return {
+      categories: categoriesResult.rows,
+      themes: themesResult.rows,
+      tags: tagsResult.rows,
+      countries: countriesWithCities,
+    }
+  }
+
+  async createTaxonomyItem(
+    type: 'category' | 'theme' | 'tag' | 'country' | 'city',
+    name: string,
+    options?: { countryId?: number }
+  ) {
+    const trimmedName = name.trim()
+    if (!trimmedName) {
+      throw new Error('Название не может быть пустым')
+    }
+
+    switch (type) {
+      case 'category':
+        return (await pool.query('INSERT INTO categories (name) VALUES ($1) RETURNING id, name', [trimmedName])).rows[0]
+      case 'theme':
+        return (await pool.query('INSERT INTO themes (name) VALUES ($1) RETURNING id, name', [trimmedName])).rows[0]
+      case 'tag':
+        return (await pool.query('INSERT INTO tags (name) VALUES ($1) RETURNING id, name', [trimmedName])).rows[0]
+      case 'country':
+        return (await pool.query('INSERT INTO countries (name) VALUES ($1) RETURNING id, name', [trimmedName])).rows[0]
+      case 'city': {
+        const countryId = options?.countryId
+        if (!countryId) {
+          throw new Error('Необходимо указать страну для города')
+        }
+        return (
+          await pool.query(
+            'INSERT INTO cities (name, country_id) VALUES ($1, $2) RETURNING id, name, country_id AS "countryId"',
+            [trimmedName, countryId]
+          )
+        ).rows[0]
+      }
+      default:
+        throw new Error('Неизвестный тип таксономии')
+    }
+  }
+
+  async updateMaterialTaxonomy(materialId: string, data: {
+    categoryIds?: number[]
+    themeIds?: number[]
+    tagIds?: number[]
+    countryId?: number | null
+    cityId?: number | null
+  }): Promise<void> {
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+
+      const shouldUpdateLocation = data.countryId !== undefined || data.cityId !== undefined
+      if (shouldUpdateLocation) {
+        let finalCountryId = data.countryId ?? null
+        let finalCityId = data.cityId ?? null
+
+        if (finalCityId !== null) {
+          const cityResult = await client.query('SELECT country_id FROM cities WHERE id = $1', [finalCityId])
+          const cityRow = cityResult.rows[0]
+          if (!cityRow) {
+            throw new Error('Указанный город не найден')
+          }
+          const cityCountryId: number = cityRow.country_id
+          if (finalCountryId === null) {
+            finalCountryId = cityCountryId
+          } else if (finalCountryId !== cityCountryId) {
+            throw new Error('Город не принадлежит выбранной стране')
+          }
+        }
+
+        if (finalCountryId === null) {
+          finalCityId = null
+        }
+
+        await client.query('UPDATE materials SET country_id = $1, city_id = $2 WHERE id = $3', [finalCountryId, finalCityId, materialId])
+      }
+
+      if (Array.isArray(data.categoryIds)) {
+        await client.query('DELETE FROM material_categories WHERE material_id = $1', [materialId])
+        for (const categoryId of data.categoryIds) {
+          await client.query(
+            'INSERT INTO material_categories (material_id, category_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+            [materialId, categoryId]
+          )
+        }
+      }
+
+      if (Array.isArray(data.themeIds)) {
+        await client.query('DELETE FROM material_themes WHERE material_id = $1', [materialId])
+        for (const themeId of data.themeIds) {
+          await client.query(
+            'INSERT INTO material_themes (material_id, theme_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+            [materialId, themeId]
+          )
+        }
+      }
+
+      if (Array.isArray(data.tagIds)) {
+        await client.query('DELETE FROM material_tags WHERE material_id = $1', [materialId])
+        for (const tagId of data.tagIds) {
+          await client.query(
+            'INSERT INTO material_tags (material_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+            [materialId, tagId]
+          )
+        }
+      }
+
+      await client.query('COMMIT')
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
+  async getCitiesByCountry(countryId: number): Promise<City[]> {
+    const result = await pool.query(
+      'SELECT id, name, country_id AS "countryId" FROM cities WHERE country_id = $1 ORDER BY name ASC',
+      [countryId]
+    )
     return result.rows
   }
 

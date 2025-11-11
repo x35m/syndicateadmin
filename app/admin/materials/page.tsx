@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Material } from '@/lib/types'
+import { ChangeEvent, useEffect, useState } from 'react'
+import { Material, Category, Theme, Tag, Country, City } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -33,7 +33,9 @@ import {
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ExternalLink, Trash2, Archive, CheckCircle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Sparkles } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { ExternalLink, Trash2, Archive, CheckCircle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Sparkles, X } from 'lucide-react'
 import { AdminHeader } from '@/components/admin-header'
 import { toast } from 'sonner'
 
@@ -45,6 +47,8 @@ interface MaterialsStats {
   processed: number
   archived: number
 }
+
+type CountryWithCities = Country & { cities: City[] }
 
 export default function MaterialsPage() {
   const [materials, setMaterials] = useState<Material[]>([])
@@ -58,6 +62,29 @@ export default function MaterialsPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
   const [generatingSummary, setGeneratingSummary] = useState<Set<string>>(new Set())
+  const [taxonomy, setTaxonomy] = useState<{
+    categories: Category[]
+    themes: Theme[]
+    tags: Tag[]
+    countries: CountryWithCities[]
+  }>({ categories: [], themes: [], tags: [], countries: [] })
+  const [taxonomyLoading, setTaxonomyLoading] = useState(false)
+  const [savingTaxonomy, setSavingTaxonomy] = useState(false)
+  const [creatingTaxonomy, setCreatingTaxonomy] = useState<null | 'category' | 'theme' | 'tag' | 'country' | 'city'>(null)
+  const [newTaxonomyInputs, setNewTaxonomyInputs] = useState({
+    category: '',
+    theme: '',
+    tag: '',
+    country: '',
+    city: '',
+  })
+  const [pendingTaxonomy, setPendingTaxonomy] = useState({
+    categoryIds: [] as number[],
+    themeIds: [] as number[],
+    tagIds: [] as number[],
+    countryId: null as number | null,
+    cityId: null as number | null,
+  })
 
   const fetchMaterials = async (status: string = 'all') => {
     try {
@@ -74,6 +101,30 @@ export default function MaterialsPage() {
       }
     } catch (error) {
       console.error('Error fetching materials:', error)
+    }
+  }
+
+  const fetchTaxonomy = async () => {
+    try {
+      setTaxonomyLoading(true)
+      const response = await fetch('/api/taxonomy')
+      const result = await response.json()
+
+      if (result.success) {
+        setTaxonomy({
+          categories: result.categories ?? [],
+          themes: result.themes ?? [],
+          tags: result.tags ?? [],
+          countries: (result.countries ?? []) as CountryWithCities[],
+        })
+      } else {
+        toast.error(result.error || 'Не удалось загрузить таксономию')
+      }
+    } catch (error) {
+      console.error('Error fetching taxonomy:', error)
+      toast.error('Не удалось загрузить таксономию')
+    } finally {
+      setTaxonomyLoading(false)
     }
   }
 
@@ -246,15 +297,182 @@ export default function MaterialsPage() {
     setSelectedIds(newSelected)
   }
 
-  useEffect(() => {
-    const loadData = async () => {
-      setLoading(true)
-      await fetchMaterials(filter)
-      setLoading(false)
+  const updateSelection = (key: 'categoryIds' | 'themeIds' | 'tagIds', id: number, checked: boolean) => {
+    setPendingTaxonomy((prev) => {
+      const values = new Set(prev[key])
+      if (checked) {
+        values.add(id)
+      } else {
+        values.delete(id)
+      }
+      return { ...prev, [key]: Array.from(values) }
+    })
+  }
+
+  const removeSelection = (key: 'categoryIds' | 'themeIds' | 'tagIds', id: number) => {
+    setPendingTaxonomy((prev) => {
+      const values = new Set(prev[key])
+      values.delete(id)
+      return { ...prev, [key]: Array.from(values) }
+    })
+  }
+
+  const handleCountryChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const value = event.target.value
+    const countryId = value ? Number(value) : null
+    setPendingTaxonomy((prev) => ({
+      ...prev,
+      countryId,
+      cityId: null,
+    }))
+  }
+
+  const handleCityChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const value = event.target.value
+    const cityId = value ? Number(value) : null
+    setPendingTaxonomy((prev) => ({
+      ...prev,
+      cityId,
+    }))
+  }
+
+  const handleNewTaxonomyInputChange = (key: 'category' | 'theme' | 'tag' | 'country' | 'city') => (event: ChangeEvent<HTMLInputElement>) => {
+    setNewTaxonomyInputs((prev) => ({
+      ...prev,
+      [key]: event.target.value,
+    }))
+  }
+
+  const handleCreateTaxonomyItem = async (type: 'category' | 'theme' | 'tag' | 'country' | 'city') => {
+    const value = newTaxonomyInputs[type]
+    if (!value.trim()) {
+      toast.warning('Введите название')
+      return
     }
 
-    loadData()
-  }, [])
+    if (type === 'city' && !pendingTaxonomy.countryId) {
+      toast.warning('Выберите страну перед добавлением города')
+      return
+    }
+
+    try {
+      setCreatingTaxonomy(type)
+      const response = await fetch('/api/taxonomy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type,
+          name: value,
+          countryId: type === 'city' ? pendingTaxonomy.countryId : undefined,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!result.success) {
+        toast.error(result.error || 'Не удалось создать элемент')
+        return
+      }
+
+      await fetchTaxonomy()
+
+      switch (type) {
+        case 'category':
+          setPendingTaxonomy((prev) => ({
+            ...prev,
+            categoryIds: Array.from(new Set([...prev.categoryIds, result.data.id])),
+          }))
+          break
+        case 'theme':
+          setPendingTaxonomy((prev) => ({
+            ...prev,
+            themeIds: Array.from(new Set([...prev.themeIds, result.data.id])),
+          }))
+          break
+        case 'tag':
+          setPendingTaxonomy((prev) => ({
+            ...prev,
+            tagIds: Array.from(new Set([...prev.tagIds, result.data.id])),
+          }))
+          break
+        case 'country':
+          setPendingTaxonomy((prev) => ({
+            ...prev,
+            countryId: result.data.id,
+            cityId: null,
+          }))
+          break
+        case 'city':
+          setPendingTaxonomy((prev) => ({
+            ...prev,
+            cityId: result.data.id,
+          }))
+          break
+      }
+
+      setNewTaxonomyInputs((prev) => ({
+        ...prev,
+        [type]: '',
+      }))
+
+      toast.success('Элемент создан')
+    } catch (error) {
+      console.error('Error creating taxonomy item:', error)
+      toast.error('Не удалось создать элемент')
+    } finally {
+      setCreatingTaxonomy(null)
+    }
+  }
+
+  const handleSaveTaxonomy = async () => {
+    if (!selectedMaterial) return
+
+    try {
+      setSavingTaxonomy(true)
+      const response = await fetch('/api/materials/taxonomy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          materialId: selectedMaterial.id,
+          categoryIds: pendingTaxonomy.categoryIds,
+          themeIds: pendingTaxonomy.themeIds,
+          tagIds: pendingTaxonomy.tagIds,
+          countryId: pendingTaxonomy.countryId,
+          cityId: pendingTaxonomy.cityId,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (!result.success) {
+        toast.error(result.error || 'Не удалось сохранить таксономию')
+        return
+      }
+
+      const updated: Material = result.data
+      setMaterials((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
+      setSelectedMaterial(updated)
+      setPendingTaxonomy({
+        categoryIds: updated.categories?.map((item) => item.id) ?? [],
+        themeIds: updated.themes?.map((item) => item.id) ?? [],
+        tagIds: updated.tags?.map((item) => item.id) ?? [],
+        countryId: updated.country?.id ?? null,
+        cityId: updated.city?.id ?? null,
+      })
+
+      toast.success('Таксономия обновлена')
+    } catch (error) {
+      console.error('Error saving taxonomy:', error)
+      toast.error('Не удалось сохранить таксономию')
+    } finally {
+      setSavingTaxonomy(false)
+    }
+  }
+
+  const selectedCountry = pendingTaxonomy.countryId
+    ? taxonomy.countries.find((country) => country.id === pendingTaxonomy.countryId)
+    : undefined
+  const availableCities = selectedCountry?.cities ?? []
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -524,8 +742,8 @@ export default function MaterialsPage() {
                       </TableHead>
                       <TableHead className="w-20">Обложка</TableHead>
                       <TableHead className="min-w-[300px]">Заголовок</TableHead>
-                      <TableHead>Автор</TableHead>
-                      <TableHead>Название источника</TableHead>
+                      <TableHead className="w-[220px]">Категории</TableHead>
+                      <TableHead>Источник</TableHead>
                       <TableHead className="w-[130px]">Дата</TableHead>
                       <TableHead>Статус</TableHead>
                     </TableRow>
@@ -560,7 +778,24 @@ export default function MaterialsPage() {
                             {material.title}
                           </div>
                         </TableCell>
-                        <TableCell onClick={() => openMaterialDialog(material)}>{material.author || '—'}</TableCell>
+                        <TableCell onClick={() => openMaterialDialog(material)}>
+                          {material.categories && material.categories.length > 0 ? (
+                            <div className="flex max-w-[220px] flex-wrap gap-1">
+                              {material.categories.slice(0, 3).map((category) => (
+                                <Badge key={`${material.id}-category-${category.id}`} variant="outline" className="text-xs font-normal">
+                                  {category.name}
+                                </Badge>
+                              ))}
+                              {material.categories.length > 3 && (
+                                <Badge variant="secondary" className="text-xs font-normal">
+                                  +{material.categories.length - 3}
+                                </Badge>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
                         <TableCell onClick={() => openMaterialDialog(material)}>
                           <div className="truncate max-w-[200px]" title={material.feedName || material.source}>
                             {material.feedName || material.source || '—'}
@@ -701,14 +936,8 @@ export default function MaterialsPage() {
               
               {/* AI Summary */}
               {selectedMaterial?.summary && (
-                <div className="mt-4 p-4 bg-primary/5 border border-primary/20 rounded-lg">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Sparkles className="h-4 w-4 text-primary" />
-                    <span className="text-sm font-semibold text-primary">Саммари (AI)</span>
-                  </div>
-                  <p className="text-sm text-foreground leading-relaxed">
+                <div className="mt-4 text-sm text-foreground leading-relaxed whitespace-pre-wrap">
                     {selectedMaterial.summary}
-                  </p>
                 </div>
               )}
 
@@ -724,11 +953,258 @@ export default function MaterialsPage() {
                   <p className="text-muted-foreground">{selectedMaterial?.content}</p>
                 )}
               </div>
-              {selectedMaterial?.source && (
-                <div className="mt-4 pt-4 border-t">
+              <div className="mt-6 space-y-6">
+                {taxonomyLoading ? (
+                  <div className="text-sm text-muted-foreground">Загрузка справочников...</div>
+                ) : (
+                  <>
+                    <div>
+                      <Label className="text-sm font-medium">Категории</Label>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {pendingTaxonomy.categoryIds.length > 0 ? (
+                          pendingTaxonomy.categoryIds.map((id) => {
+                            const category = taxonomy.categories.find((item) => item.id === id)
+                            if (!category) return null
+                            return (
+                              <Badge key={`selected-category-${id}`} variant="secondary" className="gap-1">
+                                {category.name}
+                                <button
+                                  type="button"
+                                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-sm hover:text-destructive"
+                                  onClick={() => removeSelection('categoryIds', id)}
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </Badge>
+                            )
+                          })
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Не выбрано</span>
+                        )}
+                      </div>
+                      <div className="mt-3 max-h-40 space-y-2 overflow-y-auto rounded-md border p-3">
+                        {taxonomy.categories.length === 0 ? (
+                          <span className="text-xs text-muted-foreground">Список пуст</span>
+                        ) : (
+                          taxonomy.categories.map((category) => (
+                            <label key={category.id} className="flex items-center gap-2 text-sm">
+                              <Checkbox
+                                checked={pendingTaxonomy.categoryIds.includes(category.id)}
+                                onCheckedChange={(checked) => updateSelection('categoryIds', category.id, checked === true)}
+                              />
+                              <span>{category.name}</span>
+                            </label>
+                          ))
+                        )}
+                      </div>
+                      <div className="mt-3 flex gap-2">
+                        <Input
+                          value={newTaxonomyInputs.category}
+                          onChange={handleNewTaxonomyInputChange('category')}
+                          placeholder="Новая категория"
+                          className="h-9"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => handleCreateTaxonomyItem('category')}
+                          disabled={creatingTaxonomy === 'category'}
+                        >
+                          {creatingTaxonomy === 'category' ? 'Добавление...' : 'Добавить'}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-sm font-medium">Темы</Label>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {pendingTaxonomy.themeIds.length > 0 ? (
+                          pendingTaxonomy.themeIds.map((id) => {
+                            const theme = taxonomy.themes.find((item) => item.id === id)
+                            if (!theme) return null
+                            return (
+                              <Badge key={`selected-theme-${id}`} variant="secondary" className="gap-1">
+                                {theme.name}
+                                <button
+                                  type="button"
+                                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-sm hover:text-destructive"
+                                  onClick={() => removeSelection('themeIds', id)}
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </Badge>
+                            )
+                          })
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Не выбрано</span>
+                        )}
+                      </div>
+                      <div className="mt-3 max-h-40 space-y-2 overflow-y-auto rounded-md border p-3">
+                        {taxonomy.themes.length === 0 ? (
+                          <span className="text-xs text-muted-foreground">Список пуст</span>
+                        ) : (
+                          taxonomy.themes.map((theme) => (
+                            <label key={theme.id} className="flex items-center gap-2 text-sm">
+                              <Checkbox
+                                checked={pendingTaxonomy.themeIds.includes(theme.id)}
+                                onCheckedChange={(checked) => updateSelection('themeIds', theme.id, checked === true)}
+                              />
+                              <span>{theme.name}</span>
+                            </label>
+                          ))
+                        )}
+                      </div>
+                      <div className="mt-3 flex gap-2">
+                        <Input
+                          value={newTaxonomyInputs.theme}
+                          onChange={handleNewTaxonomyInputChange('theme')}
+                          placeholder="Новая тема"
+                          className="h-9"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => handleCreateTaxonomyItem('theme')}
+                          disabled={creatingTaxonomy === 'theme'}
+                        >
+                          {creatingTaxonomy === 'theme' ? 'Добавление...' : 'Добавить'}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-sm font-medium">Теги</Label>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {pendingTaxonomy.tagIds.length > 0 ? (
+                          pendingTaxonomy.tagIds.map((id) => {
+                            const tag = taxonomy.tags.find((item) => item.id === id)
+                            if (!tag) return null
+                            return (
+                              <Badge key={`selected-tag-${id}`} variant="secondary" className="gap-1">
+                                {tag.name}
+                                <button
+                                  type="button"
+                                  className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-sm hover:text-destructive"
+                                  onClick={() => removeSelection('tagIds', id)}
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </Badge>
+                            )
+                          })
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Не выбрано</span>
+                        )}
+                      </div>
+                      <div className="mt-3 max-h-40 space-y-2 overflow-y-auto rounded-md border p-3">
+                        {taxonomy.tags.length === 0 ? (
+                          <span className="text-xs text-muted-foreground">Список пуст</span>
+                        ) : (
+                          taxonomy.tags.map((tag) => (
+                            <label key={tag.id} className="flex items-center gap-2 text-sm">
+                              <Checkbox
+                                checked={pendingTaxonomy.tagIds.includes(tag.id)}
+                                onCheckedChange={(checked) => updateSelection('tagIds', tag.id, checked === true)}
+                              />
+                              <span>{tag.name}</span>
+                            </label>
+                          ))
+                        )}
+                      </div>
+                      <div className="mt-3 flex gap-2">
+                        <Input
+                          value={newTaxonomyInputs.tag}
+                          onChange={handleNewTaxonomyInputChange('tag')}
+                          placeholder="Новый тег"
+                          className="h-9"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => handleCreateTaxonomyItem('tag')}
+                          disabled={creatingTaxonomy === 'tag'}
+                        >
+                          {creatingTaxonomy === 'tag' ? 'Добавление...' : 'Добавить'}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <Label className="text-sm font-medium">Страна</Label>
+                        <select
+                          className="mt-2 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                          value={pendingTaxonomy.countryId ?? ''}
+                          onChange={handleCountryChange}
+                        >
+                          <option value="">Не выбрано</option>
+                          {taxonomy.countries.map((country) => (
+                            <option key={country.id} value={country.id}>
+                              {country.name}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="mt-3 flex gap-2">
+                          <Input
+                            value={newTaxonomyInputs.country}
+                            onChange={handleNewTaxonomyInputChange('country')}
+                            placeholder="Новая страна"
+                            className="h-9"
+                          />
+                          <Button
+                            size="sm"
+                            onClick={() => handleCreateTaxonomyItem('country')}
+                            disabled={creatingTaxonomy === 'country'}
+                          >
+                            {creatingTaxonomy === 'country' ? 'Добавление...' : 'Добавить'}
+                          </Button>
+                        </div>
+                      </div>
+                      <div>
+                        <Label className="text-sm font-medium">Город</Label>
+                        <select
+                          className="mt-2 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                          value={pendingTaxonomy.cityId ?? ''}
+                          onChange={handleCityChange}
+                          disabled={!pendingTaxonomy.countryId || availableCities.length === 0}
+                        >
+                          <option value="">Не выбрано</option>
+                          {availableCities.map((city) => (
+                            <option key={city.id} value={city.id}>
+                              {city.name}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="mt-3 flex gap-2">
+                          <Input
+                            value={newTaxonomyInputs.city}
+                            onChange={handleNewTaxonomyInputChange('city')}
+                            placeholder="Новый город"
+                            className="h-9"
+                            disabled={!pendingTaxonomy.countryId}
+                          />
+                          <Button
+                            size="sm"
+                            onClick={() => handleCreateTaxonomyItem('city')}
+                            disabled={!pendingTaxonomy.countryId || creatingTaxonomy === 'city'}
+                          >
+                            {creatingTaxonomy === 'city' ? 'Добавление...' : 'Добавить'}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="mt-6 flex justify-end">
+                <Button onClick={handleSaveTaxonomy} disabled={savingTaxonomy || taxonomyLoading}>
+                  {savingTaxonomy ? 'Сохранение...' : 'Сохранить'}
+                </Button>
+              </div>
+
+              {(selectedMaterial?.link || selectedMaterial?.source) && (
+                <div className="mt-6 pt-4 border-t">
                   <Button variant="outline" size="sm" asChild>
                     <a 
-                      href={selectedMaterial.source} 
+                      href={selectedMaterial.link || selectedMaterial.source || '#'} 
                       target="_blank" 
                       rel="noopener noreferrer"
                       className="flex items-center gap-2"
