@@ -993,6 +993,7 @@ export class DatabaseService {
       metaDescription?: string
       sentiment?: 'positive' | 'neutral' | 'negative'
       contentType?: 'purely_factual' | 'mostly_factual' | 'balanced' | 'mostly_opinion' | 'purely_opinion'
+      setProcessed?: boolean // Автоматически устанавливать статус "processed" при успешной генерации
     }
   ): Promise<void> {
     const updates: string[] = []
@@ -1017,6 +1018,12 @@ export class DatabaseService {
     if (data.contentType !== undefined) {
       updates.push(`content_type = $${paramIndex}`)
       values.push(data.contentType)
+      paramIndex++
+    }
+    // Автоматически устанавливаем статус "processed" при успешной генерации саммари
+    if (data.setProcessed === true) {
+      updates.push(`status = $${paramIndex}`)
+      values.push('processed')
       paramIndex++
     }
 

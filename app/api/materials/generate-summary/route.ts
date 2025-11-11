@@ -678,6 +678,7 @@ export async function POST(request: Request) {
       metaDescription: metaDescription || undefined,
       sentiment: sentiment || undefined,
       contentType: contentType || undefined,
+      setProcessed: true, // Автоматически устанавливаем статус "processed" после успешной генерации
     })
 
     const shouldUpdateTaxonomy =

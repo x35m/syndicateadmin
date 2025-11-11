@@ -191,6 +191,7 @@ export default function MaterialsPage() {
   const [taxonomyLoading, setTaxonomyLoading] = useState(false)
   const [materialFilters, setMaterialFilters] = useState<MaterialFiltersState>(initialMaterialFilters)
   const [savingTaxonomy, setSavingTaxonomy] = useState(false)
+  const [regeneratingTaxonomy, setRegeneratingTaxonomy] = useState(false)
   const [creatingTaxonomy, setCreatingTaxonomy] = useState<null | 'category' | 'theme' | 'tag' | 'alliance' | 'country' | 'city'>(null)
   const [newTaxonomyInputs, setNewTaxonomyInputs] = useState({
     category: '',
@@ -763,6 +764,57 @@ export default function MaterialsPage() {
     }
   }
 
+  const handleRegenerateTaxonomy = async () => {
+    if (!selectedMaterial) return
+
+    try {
+      setRegeneratingTaxonomy(true)
+      const response = await fetch('/api/materials/regenerate-taxonomy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ materialId: selectedMaterial.id }),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Ошибка при регенерации таксономии')
+      }
+
+      if (result.success && result.data?.material) {
+        const updatedMaterial = result.data.material
+        
+        // Обновляем selectedMaterial
+        setSelectedMaterial(updatedMaterial)
+        
+        // Обновляем pendingTaxonomy с новыми значениями
+        setPendingTaxonomy({
+          categoryIds: updatedMaterial.categories?.map((item: Category) => item.id) ?? [],
+          themeIds: updatedMaterial.themes?.map((item: Theme) => item.id) ?? [],
+          tagIds: updatedMaterial.tags?.map((item: Tag) => item.id) ?? [],
+          allianceIds: updatedMaterial.alliances?.map((item: Alliance) => item.id) ?? [],
+          countryId: updatedMaterial.country?.id ?? null,
+          cityId: updatedMaterial.city?.id ?? null,
+        })
+
+        // Обновляем материал в списке
+        setMaterials((prev) =>
+          prev.map((m) => (m.id === updatedMaterial.id ? updatedMaterial : m))
+        )
+
+        toast.success('Таксономия успешно обновлена')
+        
+        // Обновляем справочники на случай если были созданы новые элементы
+        await fetchTaxonomy()
+      }
+    } catch (error: any) {
+      console.error('Error regenerating taxonomy:', error)
+      toast.error(error.message || 'Ошибка при регенерации таксономии')
+    } finally {
+      setRegeneratingTaxonomy(false)
+    }
+  }
+
   const handleSaveTaxonomy = async () => {
     if (!selectedMaterial) return
 
@@ -820,7 +872,7 @@ export default function MaterialsPage() {
       case 'new':
         return <Badge variant="default">Новый</Badge>
       case 'processed':
-        return <Badge variant="secondary" className="bg-green-500/10 text-green-700 dark:text-green-400">Опубликован</Badge>
+        return <Badge variant="secondary" className="bg-green-500/10 text-green-700 dark:text-green-400">Обработанные</Badge>
       case 'archived':
         return <Badge variant="outline">Архив</Badge>
       default:
@@ -911,7 +963,7 @@ export default function MaterialsPage() {
                   Новые {stats.new > 0 && <span className="ml-1.5 text-xs">({stats.new})</span>}
                 </TabsTrigger>
                 <TabsTrigger value="processed">
-                  Опубликованные {stats.processed > 0 && <span className="ml-1.5 text-xs">({stats.processed})</span>}
+                  Обработанные {stats.processed > 0 && <span className="ml-1.5 text-xs">({stats.processed})</span>}
                 </TabsTrigger>
                 <TabsTrigger value="archived">
                   Архив {stats.archived > 0 && <span className="ml-1.5 text-xs">({stats.archived})</span>}
@@ -1738,7 +1790,24 @@ export default function MaterialsPage() {
                 )}
               </div>
 
-              <div className="mt-6 flex justify-end">
+              <div className="mt-6 flex justify-end gap-2">
+                <Button 
+                  onClick={handleRegenerateTaxonomy} 
+                  disabled={regeneratingTaxonomy || taxonomyLoading}
+                  variant="outline"
+                >
+                  {regeneratingTaxonomy ? (
+                    <>
+                      <Sparkles className="h-4 w-4 mr-2 animate-spin" />
+                      Регенерация...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      Регенерировать таксономию
+                    </>
+                  )}
+                </Button>
                 <Button onClick={handleSaveTaxonomy} disabled={savingTaxonomy || taxonomyLoading}>
                   {savingTaxonomy ? 'Сохранение...' : 'Сохранить'}
                 </Button>

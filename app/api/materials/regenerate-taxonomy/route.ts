@@ -1,0 +1,564 @@
+import type { Alliance, Category, City, Country, Tag, Theme } from '@/lib/types'
+import { NextResponse } from 'next/server'
+import { db } from '@/lib/db'
+import Anthropic from '@anthropic-ai/sdk'
+
+const GEMINI_MODEL = 'gemini-2.5-flash'
+const CLAUDE_MODEL = 'claude-3-haiku-20240307'
+const MAX_CONTENT_LENGTH = 15000
+
+type AIProvider = 'gemini' | 'claude'
+
+async function callGemini(apiKey: string, prompt: string) {
+  const requestBody = {
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: prompt }],
+      },
+    ],
+    generationConfig: {
+      temperature: 0.4,
+      responseMimeType: 'application/json',
+    },
+  }
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify(requestBody),
+    }
+  )
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(`Gemini API error: ${response.status} - ${errorText}`)
+  }
+
+  const data = await response.json()
+  return (
+    data.candidates?.[0]?.content?.parts
+      ?.map((part: { text?: string }) => part.text ?? '')
+      .join('')
+      .trim() ?? ''
+  )
+}
+
+async function callClaude(apiKey: string, prompt: string) {
+  const anthropic = new Anthropic({
+    apiKey: apiKey,
+  })
+
+  try {
+    const message = await anthropic.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 4096,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    })
+
+    const responseText = message.content[0].type === 'text' ? message.content[0].text : ''
+    
+    const cleanText = responseText
+      .replace(/```json\n?/g, '')
+      .replace(/```\n?/g, '')
+      .trim()
+
+    return cleanText
+  } catch (error: any) {
+    const errorMessage = error?.error?.message || error?.message || 'Unknown error'
+    const errorType = error?.error?.type || error?.type || 'unknown'
+    throw new Error(`Claude API error: ${errorType} - ${errorMessage}`)
+  }
+}
+
+const normalizeName = (value?: string | null) =>
+  (value ?? '').normalize('NFKC').trim().toLowerCase()
+
+const sanitizeString = (value: unknown) =>
+  typeof value === 'string' ? value.trim() : ''
+
+const sanitizeStringArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const unique = new Set<string>()
+  const result: string[] = []
+  for (const item of value) {
+    const trimmed = sanitizeString(item)
+    if (trimmed.length > 0) {
+      const key = normalizeName(trimmed)
+      if (!unique.has(key)) {
+        unique.add(key)
+        result.push(trimmed)
+      }
+    }
+  }
+  return result
+}
+
+const extractJsonFromText = (text: string): string | null => {
+  if (!text) return null
+  
+  let cleanText = text
+    .replace(/```json\n?/g, '')
+    .replace(/```\n?/g, '')
+    .trim()
+  
+  const start = cleanText.indexOf('{')
+  const end = cleanText.lastIndexOf('}')
+  if (start === -1 || end === -1 || end <= start) return null
+  
+  return cleanText.slice(start, end + 1)
+}
+
+const buildTaxonomyContext = (
+  countries: Array<Country & { cities: City[] }>,
+  themes: Theme[],
+  tags: Tag[],
+  alliances: Alliance[]
+) => {
+  const countryLines =
+    countries.length > 0
+      ? countries.map((country) => {
+          const cityNames = (country.cities ?? []).map((city) => city.name)
+          return cityNames.length > 0
+            ? `${country.name}: ${cityNames.join(', ')}`
+            : country.name
+        })
+      : ['(пока нет сохранённых стран)']
+
+  const themeLine =
+    themes.length > 0
+      ? themes.map((theme) => theme.name).join(', ')
+      : '(пока нет тем)'
+
+  const tagLine =
+    tags.length > 0 ? tags.map((tag) => tag.name).join(', ') : '(пока нет тегов)'
+
+  const allianceLine =
+    alliances.length > 0
+      ? alliances.map((alliance) => alliance.name).join(', ')
+      : '(пока нет союзов)'
+
+  return [
+    'Страны и города: ' + countryLines.join(' | '),
+    'Темы: ' + themeLine,
+    'Теги: ' + tagLine,
+    'Политические союзы и блоки: ' + allianceLine,
+    'Если подходящего значения нет, предложи новое аккуратное название.',
+  ].join('\n')
+}
+
+const DEFAULT_TAXONOMY_FORMAT_PROMPT = `Верни только JSON объект со следующей структурой:
+{
+  "category": ["название категории"],
+  "theme": ["название темы"],
+  "tags": ["тег1", "тег2", ...],
+  "country": "название страны" или null,
+  "city": "название города" или null,
+  "alliances": ["название союза1", "название союза2", ...]
+}`
+
+const DEFAULT_TAXONOMY_PROMPTS = {
+  category: 'Определи основную категорию материала по его содержанию и тематике.',
+  theme: 'Выбери тему, которая наиболее точно отражает основной сюжет или проблематику материала.',
+  tags: 'Подбери 3-7 релевантных тегов, которые описывают ключевые аспекты материала.',
+  alliance: 'Определи международные или региональные союзы, блоки и объединения, напрямую связанные с сюжетом материала.',
+  country: 'Выбери страну, если материал ясно связан с конкретным государством.',
+  city: 'Укажи город, если он явно присутствует в материале и важен для контекста.',
+}
+
+export async function POST(request: Request) {
+  try {
+    const { materialId } = await request.json()
+
+    if (!materialId) {
+      return NextResponse.json(
+        { success: false, error: 'Material ID is required' },
+        { status: 400 }
+      )
+    }
+
+    const material = await db.getMaterialById(materialId)
+    if (!material) {
+      return NextResponse.json(
+        { success: false, error: 'Material not found' },
+        { status: 404 }
+      )
+    }
+
+    const settings = await db.getSettings()
+    const aiProvider = (settings.aiProvider as AIProvider) || 'gemini'
+    const apiKey =
+      aiProvider === 'claude' ? settings.claudeApiKey : settings.geminiApiKey
+
+    if (!apiKey) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `API key for ${aiProvider} is not configured`,
+        },
+        { status: 400 }
+      )
+    }
+
+    const taxonomy = await db.getTaxonomy()
+    const taxonomyContext = buildTaxonomyContext(
+      taxonomy.countries,
+      taxonomy.themes,
+      taxonomy.tags,
+      taxonomy.alliances
+    )
+
+    const categoryPrompt =
+      settings.taxonomyPromptCategory || DEFAULT_TAXONOMY_PROMPTS.category
+    const themePrompt =
+      settings.taxonomyPromptTheme || DEFAULT_TAXONOMY_PROMPTS.theme
+    const tagPrompt = settings.taxonomyPromptTag || DEFAULT_TAXONOMY_PROMPTS.tags
+    const alliancePrompt =
+      settings.taxonomyPromptAlliance || DEFAULT_TAXONOMY_PROMPTS.alliance
+    const countryPrompt =
+      settings.taxonomyPromptCountry || DEFAULT_TAXONOMY_PROMPTS.country
+    const cityPrompt =
+      settings.taxonomyPromptCity || DEFAULT_TAXONOMY_PROMPTS.city
+
+    const formatPrompt =
+      settings.taxonomyFormatPrompt || DEFAULT_TAXONOMY_FORMAT_PROMPT
+
+    const articleContent = material.fullContent || material.content || ''
+    const truncatedContent =
+      articleContent.length > MAX_CONTENT_LENGTH
+        ? articleContent.slice(0, MAX_CONTENT_LENGTH) + '...'
+        : articleContent
+
+    const promptSections = [
+      'Проанализируй статью и определи подходящие значения таксономии.',
+      '',
+      'КОНТЕКСТ ДОСТУПНЫХ ЗНАЧЕНИЙ:',
+      taxonomyContext,
+      '',
+      'ПРАВИЛА ДЛЯ КАЖДОГО ТИПА:',
+      `Категория: ${categoryPrompt}`,
+      `Тема: ${themePrompt}`,
+      `Теги: ${tagPrompt}`,
+      `Политические союзы: ${alliancePrompt}`,
+      `Страна: ${countryPrompt}`,
+      `Город: ${cityPrompt}`,
+      '',
+      'СТАТЬЯ:',
+      `Заголовок: ${material.title}`,
+      `Содержание: ${truncatedContent}`,
+      '',
+      formatPrompt,
+      '',
+      'ВАЖНО: Верни только чистый JSON, без markdown разметки и дополнительного текста.',
+    ]
+
+    const fullPrompt = promptSections.join('\n')
+
+    const aiResponse = await (aiProvider === 'claude'
+      ? callClaude(apiKey, fullPrompt)
+      : callGemini(apiKey, fullPrompt))
+
+    const jsonText = extractJsonFromText(aiResponse)
+    if (!jsonText) {
+      throw new Error('Failed to extract JSON from AI response')
+    }
+
+    const taxonomyData = JSON.parse(jsonText) as {
+      category?: string | string[]
+      theme?: string | string[]
+      tags?: string | string[]
+      country?: string | null
+      city?: string | null
+      alliances?: string | string[]
+    }
+
+    const categoryNames = sanitizeStringArray(
+      Array.isArray(taxonomyData.category)
+        ? taxonomyData.category
+        : taxonomyData.category
+        ? [taxonomyData.category]
+        : []
+    )
+
+    const themeNames = sanitizeStringArray(
+      Array.isArray(taxonomyData.theme)
+        ? taxonomyData.theme
+        : taxonomyData.theme
+        ? [taxonomyData.theme]
+        : []
+    )
+
+    const tagNames = sanitizeStringArray(taxonomyData.tags || [])
+    const allianceNames = sanitizeStringArray(taxonomyData.alliances || [])
+    const countryName = sanitizeString(taxonomyData.country)
+    const cityName = sanitizeString(taxonomyData.city)
+
+    const taxonomyUpdatePayload: {
+      categoryIds?: number[]
+      themeIds?: number[]
+      tagIds?: number[]
+      allianceIds?: number[]
+      countryId?: number | null
+      cityId?: number | null
+    } = {}
+
+    const categoryByName = new Map<string, Category>()
+    for (const cat of taxonomy.categories) {
+      categoryByName.set(normalizeName(cat.name), cat)
+    }
+
+    const themeByName = new Map<string, Theme>()
+    for (const theme of taxonomy.themes) {
+      themeByName.set(normalizeName(theme.name), theme)
+    }
+
+    const tagByName = new Map<string, Tag>()
+    for (const tag of taxonomy.tags) {
+      tagByName.set(normalizeName(tag.name), tag)
+    }
+
+    const allianceByName = new Map<string, Alliance>()
+    for (const alliance of taxonomy.alliances) {
+      allianceByName.set(normalizeName(alliance.name), alliance)
+    }
+
+    const countryByName = new Map<string, Country & { cities: City[] }>()
+    for (const country of taxonomy.countries) {
+      countryByName.set(normalizeName(country.name), country)
+    }
+
+    const ensureCategory = async (name: string): Promise<Category | null> => {
+      const normalized = normalizeName(name)
+      const existing = categoryByName.get(normalized)
+      if (existing) return existing
+
+      try {
+        const created = await db.createTaxonomyItem('category', { name })
+        if (created) {
+          categoryByName.set(normalized, created)
+          return created
+        }
+      } catch (error) {
+        console.error('Failed to create category:', name, error)
+      }
+      return null
+    }
+
+    const ensureTheme = async (name: string): Promise<Theme | null> => {
+      const normalized = normalizeName(name)
+      const existing = themeByName.get(normalized)
+      if (existing) return existing
+
+      try {
+        const created = await db.createTaxonomyItem('theme', { name })
+        if (created) {
+          themeByName.set(normalized, created)
+          return created
+        }
+      } catch (error) {
+        console.error('Failed to create theme:', name, error)
+      }
+      return null
+    }
+
+    const ensureTag = async (name: string): Promise<Tag | null> => {
+      const normalized = normalizeName(name)
+      const existing = tagByName.get(normalized)
+      if (existing) return existing
+
+      try {
+        const created = await db.createTaxonomyItem('tag', { name })
+        if (created) {
+          tagByName.set(normalized, created)
+          return created
+        }
+      } catch (error) {
+        console.error('Failed to create tag:', name, error)
+      }
+      return null
+    }
+
+    const ensureAlliance = async (name: string): Promise<Alliance | null> => {
+      const normalized = normalizeName(name)
+      const existing = allianceByName.get(normalized)
+      if (existing) return existing
+
+      try {
+        const created = await db.createTaxonomyItem('alliance', { name })
+        if (created) {
+          allianceByName.set(normalized, created)
+          return created
+        }
+      } catch (error) {
+        console.error('Failed to create alliance:', name, error)
+      }
+      return null
+    }
+
+    const ensureCountry = async (
+      name: string
+    ): Promise<(Country & { cities: City[] }) | null> => {
+      const normalized = normalizeName(name)
+      const existing = countryByName.get(normalized)
+      if (existing) return existing
+
+      try {
+        const created = await db.createTaxonomyItem('country', { name })
+        if (created) {
+          const countryWithCities = { ...created, cities: [] }
+          countryByName.set(normalized, countryWithCities)
+          return countryWithCities
+        }
+      } catch (error) {
+        console.error('Failed to create country:', name, error)
+      }
+      return null
+    }
+
+    const ensureCity = async (
+      name: string,
+      countryName: string
+    ): Promise<City | null> => {
+      const country = await ensureCountry(countryName)
+      if (!country) return null
+
+      const normalized = normalizeName(name)
+      const existingCity = country.cities?.find(
+        (c) => normalizeName(c.name) === normalized
+      )
+      if (existingCity) return existingCity
+
+      try {
+        const created = await db.createTaxonomyItem('city', {
+          name,
+          countryId: country.id,
+        })
+        if (created) {
+          country.cities.push(created)
+          return created
+        }
+      } catch (error) {
+        console.error('Failed to create city:', name, error)
+      }
+      return null
+    }
+
+    if (categoryNames.length > 0) {
+      const ids: number[] = []
+      for (const name of categoryNames) {
+        const category = await ensureCategory(name)
+        if (category) {
+          ids.push(category.id)
+        }
+      }
+      taxonomyUpdatePayload.categoryIds = ids
+    }
+
+    if (themeNames.length > 0) {
+      const ids: number[] = []
+      for (const name of themeNames) {
+        const theme = await ensureTheme(name)
+        if (theme) {
+          ids.push(theme.id)
+        }
+      }
+      taxonomyUpdatePayload.themeIds = ids
+    }
+
+    if (tagNames.length > 0) {
+      const ids: number[] = []
+      for (const name of tagNames) {
+        const tag = await ensureTag(name)
+        if (tag) {
+          ids.push(tag.id)
+        }
+      }
+      taxonomyUpdatePayload.tagIds = ids
+    }
+
+    if (countryName) {
+      const country = await ensureCountry(countryName)
+      if (country) {
+        taxonomyUpdatePayload.countryId = country.id
+
+        if (cityName) {
+          const city = await ensureCity(cityName, countryName)
+          if (city) {
+            taxonomyUpdatePayload.cityId = city.id
+          }
+        } else {
+          taxonomyUpdatePayload.cityId = null
+        }
+      }
+    } else {
+      taxonomyUpdatePayload.countryId = null
+      taxonomyUpdatePayload.cityId = null
+    }
+
+    if (allianceNames.length > 0) {
+      const ids: number[] = []
+      for (const name of allianceNames) {
+        const alliance = await ensureAlliance(name)
+        if (alliance) {
+          ids.push(alliance.id)
+        }
+      }
+      taxonomyUpdatePayload.allianceIds = ids
+    }
+
+    const shouldUpdateTaxonomy =
+      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'countryId') ||
+      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'cityId') ||
+      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'themeIds') ||
+      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'tagIds') ||
+      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'categoryIds') ||
+      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'allianceIds')
+
+    if (shouldUpdateTaxonomy) {
+      try {
+        await db.updateMaterialTaxonomy(materialId, taxonomyUpdatePayload)
+      } catch (error) {
+        console.error(
+          'Failed to update taxonomy for material:',
+          materialId,
+          taxonomyUpdatePayload,
+          error
+        )
+        return NextResponse.json(
+          { success: false, error: 'Failed to update taxonomy' },
+          { status: 500 }
+        )
+      }
+    }
+
+    const updatedMaterial = await db.getMaterialById(materialId)
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        material: updatedMaterial,
+        taxonomy: taxonomyUpdatePayload,
+      },
+    })
+  } catch (error) {
+    console.error('Error regenerating taxonomy:', error)
+    return NextResponse.json(
+      { success: false, error: 'Failed to regenerate taxonomy' },
+      { status: 500 }
+    )
+  }
+}
+
