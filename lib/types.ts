@@ -15,6 +15,7 @@ export interface Material {
   categories?: Category[]
   themes?: Theme[]
   tags?: Tag[]
+  alliances?: Alliance[]
   country?: Country | null
   city?: City | null
 }
@@ -38,6 +39,11 @@ export interface Theme {
 }
 
 export interface Tag {
+  id: number
+  name: string
+}
+
+export interface Alliance {
   id: number
   name: string
 }

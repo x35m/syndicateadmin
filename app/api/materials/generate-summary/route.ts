@@ -1,4 +1,4 @@
-import type { City, Country, Tag, Theme } from '@/lib/types'
+import type { Alliance, Category, City, Country, Tag, Theme } from '@/lib/types'
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
@@ -7,7 +7,18 @@ const DEFAULT_SUMMARY_PROMPT =
 const DEFAULT_TAXONOMY_SYSTEM_PROMPT =
   'Ты — редактор аналитического портала. Определи страну, город, темы и теги статьи так, чтобы они помогали редакции быстро рубрицировать материалы.'
 const DEFAULT_TAXONOMY_FORMAT_PROMPT =
-  'Верни ответ строго в формате JSON:\n{\n  "summary": "краткое резюме на русском",\n  "taxonomy": {\n    "country": "Название страны или null",\n    "city": "Название города или null",\n    "themes": ["Список тем"],\n    "tags": ["Список тегов"]\n  }\n}\nНе добавляй пояснений. Если не удалось определить значение, используй null или пустой массив.'
+  'Верни ответ строго в формате JSON:\n{\n  "summary": "краткое резюме на русском",\n  "taxonomy": {\n    "country": "Название страны или null",\n    "city": "Название города или null",\n    "themes": ["Список тем"],\n    "tags": ["Список тегов"],\n    "alliances": ["Список союзов и блоков"]\n  }\n}\nНе добавляй пояснений. Если не удалось определить значение, используй null или пустой массив.'
+
+type PromptType = 'category' | 'theme' | 'tag' | 'alliance' | 'country' | 'city'
+
+const DEFAULT_TAXONOMY_PROMPTS: Record<PromptType, string> = {
+  category: 'Определи одну или несколько категорий, основываясь на главной тематике статьи.',
+  theme: 'Подбери тематические направления, отражающие сюжет и контекст материала.',
+  tag: 'Сформируй теги для поиска и фильтрации, используй ключевые термины и факты.',
+  alliance: 'Определи международные или региональные союзы, блоки и объединения, напрямую связанные с сюжетом материала.',
+  country: 'Выбери страну, если материал ясно связан с конкретным государством.',
+  city: 'Укажи город, если он явно присутствует в материале и важен для контекста.',
+}
 
 const GEMINI_MODEL = 'gemini-2.5-flash'
 const MAX_CONTENT_LENGTH = 15000
@@ -49,7 +60,8 @@ const extractJsonFromText = (text: string): string | null => {
 const buildTaxonomyContext = (
   countries: Array<Country & { cities: City[] }>,
   themes: Theme[],
-  tags: Tag[]
+  tags: Tag[],
+  alliances: Alliance[]
 ) => {
   const countryLines =
     countries.length > 0
@@ -69,10 +81,16 @@ const buildTaxonomyContext = (
   const tagLine =
     tags.length > 0 ? tags.map((tag) => tag.name).join(', ') : '(пока нет тегов)'
 
+  const allianceLine =
+    alliances.length > 0
+      ? alliances.map((alliance) => alliance.name).join(', ')
+      : '(пока нет союзов)'
+
   return [
     'Страны и города: ' + countryLines.join(' | '),
     'Темы: ' + themeLine,
     'Теги: ' + tagLine,
+    'Политические союзы и блоки: ' + allianceLine,
     'Если подходящего значения нет, предложи новое аккуратное название.',
   ].join('\n')
 }
@@ -89,10 +107,25 @@ export async function POST(request: Request) {
       )
     }
 
-    const geminiApiKey = await db.getSetting('gemini_api_key')
-    const summaryPrompt = await db.getSetting('summary_prompt')
-    const taxonomySystemPrompt = await db.getSetting('taxonomy_system_prompt')
-    const taxonomyFormatPrompt = await db.getSetting('taxonomy_format_prompt')
+    const settings = await db.getSettings()
+    const geminiApiKey = settings['gemini_api_key']
+    const summaryPrompt = settings['summary_prompt']
+    const taxonomySystemPrompt = settings['taxonomy_system_prompt']
+    const taxonomyFormatPrompt = settings['taxonomy_format_prompt']
+    const taxonomyPrompts: Record<PromptType, string> = {
+      category:
+        settings['taxonomy_prompt_category'] ?? DEFAULT_TAXONOMY_PROMPTS.category,
+      theme:
+        settings['taxonomy_prompt_theme'] ?? DEFAULT_TAXONOMY_PROMPTS.theme,
+      tag:
+        settings['taxonomy_prompt_tag'] ?? DEFAULT_TAXONOMY_PROMPTS.tag,
+      alliance:
+        settings['taxonomy_prompt_alliance'] ?? DEFAULT_TAXONOMY_PROMPTS.alliance,
+      country:
+        settings['taxonomy_prompt_country'] ?? DEFAULT_TAXONOMY_PROMPTS.country,
+      city:
+        settings['taxonomy_prompt_city'] ?? DEFAULT_TAXONOMY_PROMPTS.city,
+    }
 
     if (!geminiApiKey) {
       return NextResponse.json(
@@ -133,18 +166,31 @@ export async function POST(request: Request) {
         contentToAnalyze.substring(0, MAX_CONTENT_LENGTH) + '...'
     }
 
-    const taxonomyData = await db.getTaxonomy()
+    const taxonomyData = (await db.getTaxonomy()) as {
+      categories: Category[]
+      themes: Theme[]
+      tags: Tag[]
+      alliances: Alliance[]
+      countries: Array<Country & { cities: City[] }>
+    }
 
     const promptSections = [
       'Задача: создай краткое саммари и предложи таксономию для статьи.',
       summaryPrompt || DEFAULT_SUMMARY_PROMPT,
       taxonomySystemPrompt || DEFAULT_TAXONOMY_SYSTEM_PROMPT,
       taxonomyFormatPrompt || DEFAULT_TAXONOMY_FORMAT_PROMPT,
+      `Правила для категорий: ${taxonomyPrompts.category}`,
+      `Правила для тем: ${taxonomyPrompts.theme}`,
+      `Правила для тегов: ${taxonomyPrompts.tag}`,
+      `Правила для политических союзов: ${taxonomyPrompts.alliance}`,
+      `Правила для стран: ${taxonomyPrompts.country}`,
+      `Правила для городов: ${taxonomyPrompts.city}`,
       'Вот доступные справочники для ориентира:',
       buildTaxonomyContext(
         taxonomyData.countries,
         taxonomyData.themes,
-        taxonomyData.tags
+        taxonomyData.tags,
+        taxonomyData.alliances
       ),
       'Статья:',
       contentToAnalyze,
@@ -296,7 +342,13 @@ export async function POST(request: Request) {
       )
     }
 
-    const taxonomyResult = parsedResponse.taxonomy ?? {}
+    const taxonomyResult = (parsedResponse.taxonomy ?? {}) as {
+      country?: string | null
+      city?: string | null
+      themes?: unknown
+      tags?: unknown
+      alliances?: unknown
+    }
 
     const hasCountry = Object.prototype.hasOwnProperty.call(
       taxonomyResult,
@@ -317,6 +369,7 @@ export async function POST(request: Request) {
 
     const themeNames = sanitizeStringArray(taxonomyResult.themes)
     const tagNames = sanitizeStringArray(taxonomyResult.tags)
+    const allianceNames = sanitizeStringArray(taxonomyResult.alliances)
 
     const countryByName = new Map<
       string,
@@ -325,6 +378,7 @@ export async function POST(request: Request) {
     const cityByName = new Map<string, Array<City>>()
     const themeByName = new Map<string, Theme>()
     const tagByName = new Map<string, Tag>()
+    const allianceByName = new Map<string, Alliance>()
 
     taxonomyData.countries.forEach((country) => {
       countryByName.set(normalizeName(country.name), country)
@@ -343,6 +397,9 @@ export async function POST(request: Request) {
 
     taxonomyData.tags.forEach((tag) => {
       tagByName.set(normalizeName(tag.name), tag)
+    })
+    taxonomyData.alliances.forEach((alliance) => {
+      allianceByName.set(normalizeName(alliance.name), alliance)
     })
 
     const ensureCountry = async (name: string) => {
@@ -438,11 +495,24 @@ export async function POST(request: Request) {
       return created
     }
 
+    const ensureAlliance = async (name: string) => {
+      const key = normalizeName(name)
+      if (key.length === 0) return null
+      const existing = allianceByName.get(key)
+      if (existing) return existing
+
+      const created = await db.createTaxonomyItem('alliance', name)
+      allianceByName.set(key, created)
+      taxonomyData.alliances.push(created)
+      return created
+    }
+
     const taxonomyUpdatePayload: {
       countryId?: number | null
       cityId?: number | null
       themeIds?: number[]
       tagIds?: number[]
+      allianceIds?: number[]
     } = {}
 
     if (hasCountry) {
@@ -517,13 +587,29 @@ export async function POST(request: Request) {
       taxonomyUpdatePayload.tagIds = ids
     }
 
+    if (Array.isArray(taxonomyResult.alliances)) {
+      const ids: number[] = []
+      for (const allianceName of allianceNames) {
+        try {
+          const alliance = await ensureAlliance(allianceName)
+          if (alliance) {
+            ids.push(alliance.id)
+          }
+        } catch (error) {
+          console.error('Failed to ensure alliance:', allianceName, error)
+        }
+      }
+      taxonomyUpdatePayload.allianceIds = ids
+    }
+
     await db.updateMaterialSummary(materialId, summary)
 
     const shouldUpdateTaxonomy =
       Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'countryId') ||
       Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'cityId') ||
       Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'themeIds') ||
-      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'tagIds')
+      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'tagIds') ||
+      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'allianceIds')
 
     if (shouldUpdateTaxonomy) {
       try {

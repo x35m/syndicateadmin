@@ -14,6 +14,7 @@ export function AdminHeader() {
   const navItems = [
     { href: '/admin', label: 'Дашборд' },
     { href: '/admin/materials', label: 'Материалы' },
+    { href: '/admin/rss', label: 'RSS фиды' },
     { href: '/admin/taxonomy', label: 'Справочники' },
     { href: '/admin/settings', label: 'Настройки' },
   ]

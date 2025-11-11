@@ -1,5 +1,5 @@
 import { Pool } from 'pg'
-import { Material, Category, Theme, Tag, Country, City } from './types'
+import { Material, Category, Theme, Tag, Alliance, Country, City } from './types'
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || process.env.DATABASE_PUBLIC_URL,
@@ -25,7 +25,8 @@ export class DatabaseService {
                    city_data.city,
                    categories_data.categories,
                    themes_data.themes,
-                   tags_data.tags
+                   tags_data.tags,
+                   alliances_data.alliances
             FROM materials m
             LEFT JOIN feeds f ON m.source = f.url
             LEFT JOIN LATERAL (
@@ -74,6 +75,18 @@ export class DatabaseService {
               JOIN tags tg ON tg.id = mtg.tag_id
               WHERE mtg.material_id = m.id
             ) tags_data ON TRUE
+            LEFT JOIN LATERAL (
+              SELECT COALESCE(
+                json_agg(
+                  json_build_object('id', al.id, 'name', al.name)
+                  ORDER BY al.name
+                ),
+                '[]'::json
+              ) AS alliances
+              FROM material_alliances ma
+              JOIN alliances al ON al.id = ma.alliance_id
+              WHERE ma.material_id = m.id
+            ) alliances_data ON TRUE
             ${whereClause ?? ''}
             ORDER BY m.created_at DESC`
   }
@@ -159,6 +172,14 @@ export class DatabaseService {
       `)
 
       await client.query(`
+        CREATE TABLE IF NOT EXISTS alliances (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `)
+
+      await client.query(`
         CREATE TABLE IF NOT EXISTS material_categories (
           material_id VARCHAR(255) NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
           category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
@@ -179,6 +200,14 @@ export class DatabaseService {
           material_id VARCHAR(255) NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
           tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
           PRIMARY KEY (material_id, tag_id)
+        )
+      `)
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS material_alliances (
+          material_id VARCHAR(255) NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+          alliance_id INTEGER NOT NULL REFERENCES alliances(id) ON DELETE CASCADE,
+          PRIMARY KEY (material_id, alliance_id)
         )
       `)
 
@@ -349,12 +378,14 @@ export class DatabaseService {
     categories: Category[]
     themes: Theme[]
     tags: Tag[]
+    alliances: Alliance[]
     countries: Array<Country & { cities: City[] }>
   }> {
-    const [categoriesResult, themesResult, tagsResult, countriesResult, citiesResult] = await Promise.all([
+    const [categoriesResult, themesResult, tagsResult, alliancesResult, countriesResult, citiesResult] = await Promise.all([
       pool.query('SELECT id, name FROM categories ORDER BY name ASC'),
       pool.query('SELECT id, name FROM themes ORDER BY name ASC'),
       pool.query('SELECT id, name FROM tags ORDER BY name ASC'),
+      pool.query('SELECT id, name FROM alliances ORDER BY name ASC'),
       pool.query('SELECT id, name FROM countries ORDER BY name ASC'),
       pool.query('SELECT id, name, country_id AS "countryId" FROM cities ORDER BY name ASC'),
     ])
@@ -376,12 +407,13 @@ export class DatabaseService {
       categories: categoriesResult.rows,
       themes: themesResult.rows,
       tags: tagsResult.rows,
+      alliances: alliancesResult.rows,
       countries: countriesWithCities,
     }
   }
 
   async createTaxonomyItem(
-    type: 'category' | 'theme' | 'tag' | 'country' | 'city',
+    type: 'category' | 'theme' | 'tag' | 'alliance' | 'country' | 'city',
     name: string,
     options?: { countryId?: number }
   ) {
@@ -397,6 +429,8 @@ export class DatabaseService {
         return (await pool.query('INSERT INTO themes (name) VALUES ($1) RETURNING id, name', [trimmedName])).rows[0]
       case 'tag':
         return (await pool.query('INSERT INTO tags (name) VALUES ($1) RETURNING id, name', [trimmedName])).rows[0]
+      case 'alliance':
+        return (await pool.query('INSERT INTO alliances (name) VALUES ($1) RETURNING id, name', [trimmedName])).rows[0]
       case 'country':
         return (await pool.query('INSERT INTO countries (name) VALUES ($1) RETURNING id, name', [trimmedName])).rows[0]
       case 'city': {
@@ -417,7 +451,7 @@ export class DatabaseService {
   }
 
   async updateTaxonomyItem(
-    type: 'category' | 'theme' | 'tag' | 'country' | 'city',
+    type: 'category' | 'theme' | 'tag' | 'alliance' | 'country' | 'city',
     id: number,
     data: { name?: string; countryId?: number | null }
   ) {
@@ -445,6 +479,14 @@ export class DatabaseService {
         return (
           await pool.query(
             'UPDATE tags SET name = $1 WHERE id = $2 RETURNING id, name',
+            [trimmedName, id]
+          )
+        ).rows[0]
+      case 'alliance':
+        if (!trimmedName) throw new Error('Название союза не может быть пустым')
+        return (
+          await pool.query(
+            'UPDATE alliances SET name = $1 WHERE id = $2 RETURNING id, name',
             [trimmedName, id]
           )
         ).rows[0]
@@ -478,7 +520,7 @@ export class DatabaseService {
   }
 
   async deleteTaxonomyItem(
-    type: 'category' | 'theme' | 'tag' | 'country' | 'city',
+    type: 'category' | 'theme' | 'tag' | 'alliance' | 'country' | 'city',
     id: number
   ) {
     const client = await pool.connect()
@@ -494,6 +536,10 @@ export class DatabaseService {
           break
         case 'tag':
           await client.query('DELETE FROM tags WHERE id = $1', [id])
+          break
+        case 'alliance':
+          await client.query('DELETE FROM material_alliances WHERE alliance_id = $1', [id])
+          await client.query('DELETE FROM alliances WHERE id = $1', [id])
           break
         case 'city':
           await client.query('UPDATE materials SET city_id = NULL WHERE city_id = $1', [id])
@@ -524,6 +570,7 @@ export class DatabaseService {
     categoryIds?: number[]
     themeIds?: number[]
     tagIds?: number[]
+    allianceIds?: number[]
     countryId?: number | null
     cityId?: number | null
   }): Promise<void> {
@@ -583,6 +630,16 @@ export class DatabaseService {
           await client.query(
             'INSERT INTO material_tags (material_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
             [materialId, tagId]
+          )
+        }
+      }
+
+      if (Array.isArray(data.allianceIds)) {
+        await client.query('DELETE FROM material_alliances WHERE material_id = $1', [materialId])
+        for (const allianceId of data.allianceIds) {
+          await client.query(
+            'INSERT INTO material_alliances (material_id, alliance_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+            [materialId, allianceId]
           )
         }
       }

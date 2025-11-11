@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json()
     const { type, name, countryId } = body as {
-      type?: 'category' | 'theme' | 'tag' | 'country' | 'city'
+      type?: 'category' | 'theme' | 'tag' | 'alliance' | 'country' | 'city'
       name?: string
       countryId?: number
     }
@@ -46,7 +46,7 @@ export async function PATCH(request: Request) {
   try {
     const body = await request.json()
     const { type, id, name, countryId } = body as {
-      type?: 'category' | 'theme' | 'tag' | 'country' | 'city'
+      type?: 'category' | 'theme' | 'tag' | 'alliance' | 'country' | 'city'
       id?: number
       name?: string
       countryId?: number | null
@@ -83,6 +83,7 @@ export async function DELETE(request: Request) {
       | 'category'
       | 'theme'
       | 'tag'
+      | 'alliance'
       | 'country'
       | 'city'
       | null

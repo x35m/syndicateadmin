@@ -1,7 +1,7 @@
 'use client'
 
-import { ChangeEvent, useEffect, useState } from 'react'
-import { Material, Category, Theme, Tag, Country, City } from '@/lib/types'
+import { ChangeEvent, useEffect, useMemo, useState } from 'react'
+import { Material, Category, Theme, Tag, Alliance, Country, City } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -35,9 +35,29 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ExternalLink, Trash2, Archive, CheckCircle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Sparkles, X } from 'lucide-react'
+import {
+  ExternalLink,
+  Trash2,
+  Archive,
+  CheckCircle,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  Sparkles,
+  X,
+  ChevronDown,
+} from 'lucide-react'
 import { AdminHeader } from '@/components/admin-header'
 import { toast } from 'sonner'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
 
 type BulkAction = 'published' | 'archived' | 'delete' | 'generate-summary' | null
 
@@ -49,6 +69,103 @@ interface MaterialsStats {
 }
 
 type CountryWithCities = Country & { cities: City[] }
+
+const initialMaterialFilters = {
+  search: '',
+  categories: [] as number[],
+  themes: [] as number[],
+  tags: [] as number[],
+  alliances: [] as number[],
+  countries: [] as number[],
+  cities: [] as number[],
+  feeds: [] as string[],
+  onlyWithSummary: false,
+}
+
+type MaterialFiltersState = typeof initialMaterialFilters
+
+interface FilterMultiSelectProps<T extends string | number> {
+  label: string
+  options: Array<{ value: T; label: string }>
+  selected: T[]
+  onChange: (values: T[]) => void
+  disabled?: boolean
+}
+
+function FilterMultiSelect<T extends string | number>({
+  label,
+  options,
+  selected,
+  onChange,
+  disabled,
+}: FilterMultiSelectProps<T>) {
+  const [searchTerm, setSearchTerm] = useState('')
+  const toggleValue = (value: T) => {
+    if (selected.includes(value)) {
+      onChange(selected.filter((item) => item !== value))
+    } else {
+      onChange([...selected, value])
+    }
+  }
+
+  const filteredOptions = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase()
+    if (!query) return options
+    return options.filter((option) =>
+      option.label.toLowerCase().includes(query)
+    )
+  }, [options, searchTerm])
+
+  return (
+    <DropdownMenu onOpenChange={(open) => !open && setSearchTerm('')}>
+      <DropdownMenuTrigger asChild disabled={disabled}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="min-w-[160px] justify-between"
+        >
+          <span>{label}</span>
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            {selected.length > 0 && (
+              <Badge variant="secondary" className="px-1 text-xs font-medium">
+                {selected.length}
+              </Badge>
+            )}
+            <ChevronDown className="h-3 w-3" />
+          </span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-64 max-h-64 overflow-y-auto">
+        <DropdownMenuLabel>{label}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <div className="p-1">
+          <Input
+            placeholder="Поиск..."
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            className="h-8"
+          />
+        </div>
+        <DropdownMenuSeparator />
+        {filteredOptions.length === 0 ? (
+          <div className="px-2 py-1.5 text-xs text-muted-foreground">
+            Ничего не найдено
+          </div>
+        ) : (
+          filteredOptions.map((option) => (
+            <DropdownMenuCheckboxItem
+              key={String(option.value)}
+              checked={selected.includes(option.value)}
+              onCheckedChange={() => toggleValue(option.value)}
+            >
+              {option.label}
+            </DropdownMenuCheckboxItem>
+          ))
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
 
 export default function MaterialsPage() {
   const [materials, setMaterials] = useState<Material[]>([])
@@ -66,15 +183,18 @@ export default function MaterialsPage() {
     categories: Category[]
     themes: Theme[]
     tags: Tag[]
+    alliances: Alliance[]
     countries: CountryWithCities[]
-  }>({ categories: [], themes: [], tags: [], countries: [] })
+  }>({ categories: [], themes: [], tags: [], alliances: [], countries: [] })
   const [taxonomyLoading, setTaxonomyLoading] = useState(false)
+  const [materialFilters, setMaterialFilters] = useState<MaterialFiltersState>(initialMaterialFilters)
   const [savingTaxonomy, setSavingTaxonomy] = useState(false)
-  const [creatingTaxonomy, setCreatingTaxonomy] = useState<null | 'category' | 'theme' | 'tag' | 'country' | 'city'>(null)
+  const [creatingTaxonomy, setCreatingTaxonomy] = useState<null | 'category' | 'theme' | 'tag' | 'alliance' | 'country' | 'city'>(null)
   const [newTaxonomyInputs, setNewTaxonomyInputs] = useState({
     category: '',
     theme: '',
     tag: '',
+    alliance: '',
     country: '',
     city: '',
   })
@@ -82,9 +202,139 @@ export default function MaterialsPage() {
     categoryIds: [] as number[],
     themeIds: [] as number[],
     tagIds: [] as number[],
+    allianceIds: [] as number[],
     countryId: null as number | null,
     cityId: null as number | null,
   })
+
+  const availableFeeds = useMemo(() => {
+    const feeds = new Set<string>()
+    materials.forEach((material) => {
+      const feedName = material.feedName || material.source
+      if (feedName) {
+        feeds.add(feedName)
+      }
+    })
+    return Array.from(feeds).sort((a, b) => a.localeCompare(b, 'ru'))
+  }, [materials])
+
+  const filterCityOptions = useMemo(() => {
+    const list: Array<{ value: number; label: string }> = []
+    taxonomy.countries.forEach((country) => {
+      country.cities.forEach((city) => {
+        list.push({
+          value: city.id,
+          label: `${city.name} — ${country.name}`,
+        })
+      })
+    })
+    return list.sort((a, b) => a.label.localeCompare(b.label, 'ru'))
+  }, [taxonomy.countries])
+
+  const filteredMaterials = useMemo(() => {
+    const query = materialFilters.search.trim().toLowerCase()
+    return materials.filter((material) => {
+      if (query) {
+        const haystack = [
+          material.title,
+          material.summary,
+          material.content,
+          material.feedName,
+          material.source,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+
+        if (!haystack.includes(query)) {
+          return false
+        }
+      }
+
+      if (materialFilters.categories.length > 0) {
+        const ids = material.categories?.map((item) => item.id) ?? []
+        if (!materialFilters.categories.some((id) => ids.includes(id))) {
+          return false
+        }
+      }
+
+      if (materialFilters.themes.length > 0) {
+        const ids = material.themes?.map((item) => item.id) ?? []
+        if (!materialFilters.themes.some((id) => ids.includes(id))) {
+          return false
+        }
+      }
+
+      if (materialFilters.tags.length > 0) {
+        const ids = material.tags?.map((item) => item.id) ?? []
+        if (!materialFilters.tags.some((id) => ids.includes(id))) {
+          return false
+        }
+      }
+
+      if (materialFilters.alliances.length > 0) {
+        const ids = material.alliances?.map((item) => item.id) ?? []
+        if (!materialFilters.alliances.some((id) => ids.includes(id))) {
+          return false
+        }
+      }
+
+      if (materialFilters.countries.length > 0) {
+        const countryId = material.country?.id
+        if (!countryId || !materialFilters.countries.includes(countryId)) {
+          return false
+        }
+      }
+
+      if (materialFilters.cities.length > 0) {
+        const cityId = material.city?.id
+        if (!cityId || !materialFilters.cities.includes(cityId)) {
+          return false
+        }
+      }
+
+      if (materialFilters.feeds.length > 0) {
+        const feedName = material.feedName || material.source || ''
+        if (!materialFilters.feeds.includes(feedName)) {
+          return false
+        }
+      }
+
+      if (materialFilters.onlyWithSummary) {
+        if (!material.summary || material.summary.trim().length === 0) {
+          return false
+        }
+      }
+
+      return true
+    })
+  }, [materials, materialFilters])
+
+  const filtersApplied = useMemo(() => {
+    return (
+      materialFilters.search.trim().length > 0 ||
+      materialFilters.categories.length > 0 ||
+      materialFilters.themes.length > 0 ||
+      materialFilters.tags.length > 0 ||
+      materialFilters.alliances.length > 0 ||
+      materialFilters.countries.length > 0 ||
+      materialFilters.cities.length > 0 ||
+      materialFilters.feeds.length > 0 ||
+      materialFilters.onlyWithSummary
+    )
+  }, [materialFilters])
+
+  useEffect(() => {
+    setSelectedIds(new Set())
+    setCurrentPage(1)
+  }, [materialFilters])
+
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(filteredMaterials.length / pageSize))
+    if (currentPage > maxPage) {
+      setCurrentPage(maxPage)
+    }
+  }, [filteredMaterials.length, pageSize, currentPage])
 
   const fetchMaterials = async (status: string = 'all') => {
     setLoading(true)
@@ -118,6 +368,7 @@ export default function MaterialsPage() {
           categories: result.categories ?? [],
           themes: result.themes ?? [],
           tags: result.tags ?? [],
+          alliances: result.alliances ?? [],
           countries: (result.countries ?? []) as CountryWithCities[],
         })
       } else {
@@ -143,6 +394,7 @@ export default function MaterialsPage() {
 
       if (result.success) {
         await fetchMaterials(filter)
+        await fetchTaxonomy()
         setSelectedIds(new Set())
       }
     } catch (error) {
@@ -208,6 +460,7 @@ export default function MaterialsPage() {
         }
         
         await fetchMaterials(filter)
+        await fetchTaxonomy()
         setSelectedIds(new Set())
         
         if (errorCount === 0) {
@@ -249,6 +502,7 @@ export default function MaterialsPage() {
 
   const handleFilterChange = async (value: string) => {
     setFilter(value)
+    setMaterialFilters(initialMaterialFilters)
     await fetchMaterials(value)
     setSelectedIds(new Set())
     setCurrentPage(1)
@@ -256,14 +510,22 @@ export default function MaterialsPage() {
 
   const openMaterialDialog = (material: Material) => {
     setSelectedMaterial(material)
+    setPendingTaxonomy({
+      categoryIds: material.categories?.map((item) => item.id) ?? [],
+      themeIds: material.themes?.map((item) => item.id) ?? [],
+      tagIds: material.tags?.map((item) => item.id) ?? [],
+      allianceIds: material.alliances?.map((item) => item.id) ?? [],
+      countryId: material.country?.id ?? null,
+      cityId: material.city?.id ?? null,
+    })
     setIsDialogOpen(true)
   }
 
   // Pagination logic
-  const totalPages = Math.ceil(materials.length / pageSize)
+  const totalPages = Math.max(1, Math.ceil(filteredMaterials.length / pageSize))
   const startIndex = (currentPage - 1) * pageSize
   const endIndex = startIndex + pageSize
-  const paginatedMaterials = materials.slice(startIndex, endIndex)
+  const paginatedMaterials = filteredMaterials.slice(startIndex, endIndex)
 
   const goToPage = (page: number) => {
     setCurrentPage(Math.max(1, Math.min(page, totalPages)))
@@ -298,19 +560,7 @@ export default function MaterialsPage() {
     setSelectedIds(newSelected)
   }
 
-  const updateSelection = (key: 'categoryIds' | 'themeIds' | 'tagIds', id: number, checked: boolean) => {
-    setPendingTaxonomy((prev) => {
-      const values = new Set(prev[key])
-      if (checked) {
-        values.add(id)
-      } else {
-        values.delete(id)
-      }
-      return { ...prev, [key]: Array.from(values) }
-    })
-  }
-
-  const removeSelection = (key: 'categoryIds' | 'themeIds' | 'tagIds', id: number) => {
+  const removeSelection = (key: 'categoryIds' | 'themeIds' | 'tagIds' | 'allianceIds', id: number) => {
     setPendingTaxonomy((prev) => {
       const values = new Set(prev[key])
       values.delete(id)
@@ -337,14 +587,14 @@ export default function MaterialsPage() {
     }))
   }
 
-  const handleNewTaxonomyInputChange = (key: 'category' | 'theme' | 'tag' | 'country' | 'city') => (event: ChangeEvent<HTMLInputElement>) => {
+  const handleNewTaxonomyInputChange = (key: 'category' | 'theme' | 'tag' | 'alliance' | 'country' | 'city') => (event: ChangeEvent<HTMLInputElement>) => {
     setNewTaxonomyInputs((prev) => ({
       ...prev,
       [key]: event.target.value,
     }))
   }
 
-  const handleCreateTaxonomyItem = async (type: 'category' | 'theme' | 'tag' | 'country' | 'city') => {
+  const handleCreateTaxonomyItem = async (type: 'category' | 'theme' | 'tag' | 'alliance' | 'country' | 'city') => {
     const value = newTaxonomyInputs[type]
     if (!value.trim()) {
       toast.warning('Введите название')
@@ -396,6 +646,12 @@ export default function MaterialsPage() {
             tagIds: Array.from(new Set([...prev.tagIds, result.data.id])),
           }))
           break
+        case 'alliance':
+          setPendingTaxonomy((prev) => ({
+            ...prev,
+            allianceIds: Array.from(new Set([...prev.allianceIds, result.data.id])),
+          }))
+          break
         case 'country':
           setPendingTaxonomy((prev) => ({
             ...prev,
@@ -438,6 +694,7 @@ export default function MaterialsPage() {
           categoryIds: pendingTaxonomy.categoryIds,
           themeIds: pendingTaxonomy.themeIds,
           tagIds: pendingTaxonomy.tagIds,
+          allianceIds: pendingTaxonomy.allianceIds,
           countryId: pendingTaxonomy.countryId,
           cityId: pendingTaxonomy.cityId,
         }),
@@ -457,6 +714,7 @@ export default function MaterialsPage() {
         categoryIds: updated.categories?.map((item) => item.id) ?? [],
         themeIds: updated.themes?.map((item) => item.id) ?? [],
         tagIds: updated.tags?.map((item) => item.id) ?? [],
+        allianceIds: updated.alliances?.map((item) => item.id) ?? [],
         countryId: updated.country?.id ?? null,
         cityId: updated.city?.id ?? null,
       })
@@ -639,15 +897,137 @@ export default function MaterialsPage() {
           {/* Materials Table */}
           <Card>
             <CardHeader>
-              <CardTitle>Материалы ({materials.length})</CardTitle>
+              <CardTitle>
+                Материалы ({filteredMaterials.length}/{materials.length})
+              </CardTitle>
             </CardHeader>
             <CardContent>
+              <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex flex-wrap gap-2">
+                  <Input
+                    placeholder="Поиск…"
+                    value={materialFilters.search}
+                    onChange={(event) =>
+                      setMaterialFilters((prev) => ({
+                        ...prev,
+                        search: event.target.value,
+                      }))
+                    }
+                    className="h-9 w-full sm:w-64"
+                  />
+                  <FilterMultiSelect
+                    label="Категории"
+                    options={taxonomy.categories.map((item) => ({
+                      value: item.id,
+                      label: item.name,
+                    }))}
+                    selected={materialFilters.categories}
+                    onChange={(values) =>
+                      setMaterialFilters((prev) => ({ ...prev, categories: values }))
+                    }
+                    disabled={taxonomy.categories.length === 0}
+                  />
+                  <FilterMultiSelect
+                    label="Темы"
+                    options={taxonomy.themes.map((item) => ({
+                      value: item.id,
+                      label: item.name,
+                    }))}
+                    selected={materialFilters.themes}
+                    onChange={(values) =>
+                      setMaterialFilters((prev) => ({ ...prev, themes: values }))
+                    }
+                    disabled={taxonomy.themes.length === 0}
+                  />
+                  <FilterMultiSelect
+                    label="Теги"
+                    options={taxonomy.tags.map((item) => ({
+                      value: item.id,
+                      label: item.name,
+                    }))}
+                    selected={materialFilters.tags}
+                    onChange={(values) =>
+                      setMaterialFilters((prev) => ({ ...prev, tags: values }))
+                    }
+                    disabled={taxonomy.tags.length === 0}
+                  />
+                  <FilterMultiSelect
+                    label="Союзы"
+                    options={taxonomy.alliances.map((item) => ({
+                      value: item.id,
+                      label: item.name,
+                    }))}
+                    selected={materialFilters.alliances}
+                    onChange={(values) =>
+                      setMaterialFilters((prev) => ({ ...prev, alliances: values }))
+                    }
+                    disabled={taxonomy.alliances.length === 0}
+                  />
+                  <FilterMultiSelect
+                    label="Страны"
+                    options={taxonomy.countries.map((item) => ({
+                      value: item.id,
+                      label: item.name,
+                    }))}
+                    selected={materialFilters.countries}
+                    onChange={(values) =>
+                      setMaterialFilters((prev) => ({ ...prev, countries: values }))
+                    }
+                    disabled={taxonomy.countries.length === 0}
+                  />
+                  <FilterMultiSelect
+                    label="Города"
+                    options={filterCityOptions}
+                    selected={materialFilters.cities}
+                    onChange={(values) =>
+                      setMaterialFilters((prev) => ({ ...prev, cities: values }))
+                    }
+                    disabled={filterCityOptions.length === 0}
+                  />
+                  <FilterMultiSelect
+                    label="Источники"
+                    options={availableFeeds.map((feed) => ({
+                      value: feed,
+                      label: feed,
+                    }))}
+                    selected={materialFilters.feeds}
+                    onChange={(values) =>
+                      setMaterialFilters((prev) => ({ ...prev, feeds: values }))
+                    }
+                    disabled={availableFeeds.length === 0}
+                  />
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Checkbox
+                      checked={materialFilters.onlyWithSummary}
+                      onCheckedChange={(checked) =>
+                        setMaterialFilters((prev) => ({
+                          ...prev,
+                          onlyWithSummary: checked === true,
+                        }))
+                      }
+                    />
+                    Только с саммари
+                  </label>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setMaterialFilters(initialMaterialFilters)}
+                    disabled={!filtersApplied}
+                  >
+                    Сбросить фильтры
+                  </Button>
+                </div>
+              </div>
+
               {/* Pagination Controls - Top */}
-              {!loading && materials.length > 0 && (
+              {!loading && filteredMaterials.length > 0 && (
                 <div className="flex items-center justify-between mb-4 pb-4 border-b">
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground">
-                      Показано {startIndex + 1}-{Math.min(endIndex, materials.length)} из {materials.length}
+                      Показано {filteredMaterials.length === 0 ? 0 : startIndex + 1}-
+                      {Math.min(endIndex, filteredMaterials.length)} из {filteredMaterials.length}
                     </span>
                   </div>
 
@@ -737,9 +1117,11 @@ export default function MaterialsPage() {
                     </div>
                   ))}
                 </div>
-              ) : materials.length === 0 ? (
+              ) : filteredMaterials.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
-                  Нет материалов. Добавьте RSS фиды и синхронизируйте их на главной.
+                  {filtersApplied
+                    ? 'Материалы по выбранным фильтрам не найдены.'
+                    : 'Нет материалов. Добавьте RSS фиды и синхронизируйте их на главной.'}
                 </div>
               ) : (
                 <Table>
@@ -837,11 +1219,12 @@ export default function MaterialsPage() {
               )}
 
               {/* Pagination Controls */}
-              {!loading && materials.length > 0 && (
+              {!loading && filteredMaterials.length > 0 && (
                 <div className="flex items-center justify-between mt-4 pt-4 border-t">
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground">
-                      Показано {startIndex + 1}-{Math.min(endIndex, materials.length)} из {materials.length}
+                      Показано {filteredMaterials.length === 0 ? 0 : startIndex + 1}-
+                      {Math.min(endIndex, filteredMaterials.length)} из {filteredMaterials.length}
                     </span>
                   </div>
 
@@ -1009,20 +1392,19 @@ export default function MaterialsPage() {
                           <span className="text-xs text-muted-foreground">Не выбрано</span>
                         )}
                       </div>
-                      <div className="mt-3 max-h-40 space-y-2 overflow-y-auto rounded-md border p-3">
-                        {taxonomy.categories.length === 0 ? (
-                          <span className="text-xs text-muted-foreground">Список пуст</span>
-                        ) : (
-                          taxonomy.categories.map((category) => (
-                            <label key={category.id} className="flex items-center gap-2 text-sm">
-                              <Checkbox
-                                checked={pendingTaxonomy.categoryIds.includes(category.id)}
-                                onCheckedChange={(checked) => updateSelection('categoryIds', category.id, checked === true)}
-                              />
-                              <span>{category.name}</span>
-                            </label>
-                          ))
-                        )}
+                      <div className="mt-3">
+                        <FilterMultiSelect
+                          label="Выбрать категории"
+                          options={taxonomy.categories.map((category) => ({
+                            value: category.id,
+                            label: category.name,
+                          }))}
+                          selected={pendingTaxonomy.categoryIds}
+                          onChange={(values) =>
+                            setPendingTaxonomy((prev) => ({ ...prev, categoryIds: values }))
+                          }
+                          disabled={taxonomy.categories.length === 0}
+                        />
                       </div>
                       <div className="mt-3 flex gap-2">
                         <Input
@@ -1065,20 +1447,19 @@ export default function MaterialsPage() {
                           <span className="text-xs text-muted-foreground">Не выбрано</span>
                         )}
                       </div>
-                      <div className="mt-3 max-h-40 space-y-2 overflow-y-auto rounded-md border p-3">
-                        {taxonomy.themes.length === 0 ? (
-                          <span className="text-xs text-muted-foreground">Список пуст</span>
-                        ) : (
-                          taxonomy.themes.map((theme) => (
-                            <label key={theme.id} className="flex items-center gap-2 text-sm">
-                              <Checkbox
-                                checked={pendingTaxonomy.themeIds.includes(theme.id)}
-                                onCheckedChange={(checked) => updateSelection('themeIds', theme.id, checked === true)}
-                              />
-                              <span>{theme.name}</span>
-                            </label>
-                          ))
-                        )}
+                      <div className="mt-3">
+                        <FilterMultiSelect
+                          label="Выбрать темы"
+                          options={taxonomy.themes.map((theme) => ({
+                            value: theme.id,
+                            label: theme.name,
+                          }))}
+                          selected={pendingTaxonomy.themeIds}
+                          onChange={(values) =>
+                            setPendingTaxonomy((prev) => ({ ...prev, themeIds: values }))
+                          }
+                          disabled={taxonomy.themes.length === 0}
+                        />
                       </div>
                       <div className="mt-3 flex gap-2">
                         <Input
@@ -1121,20 +1502,19 @@ export default function MaterialsPage() {
                           <span className="text-xs text-muted-foreground">Не выбрано</span>
                         )}
                       </div>
-                      <div className="mt-3 max-h-40 space-y-2 overflow-y-auto rounded-md border p-3">
-                        {taxonomy.tags.length === 0 ? (
-                          <span className="text-xs text-muted-foreground">Список пуст</span>
-                        ) : (
-                          taxonomy.tags.map((tag) => (
-                            <label key={tag.id} className="flex items-center gap-2 text-sm">
-                              <Checkbox
-                                checked={pendingTaxonomy.tagIds.includes(tag.id)}
-                                onCheckedChange={(checked) => updateSelection('tagIds', tag.id, checked === true)}
-                              />
-                              <span>{tag.name}</span>
-                            </label>
-                          ))
-                        )}
+                      <div className="mt-3">
+                        <FilterMultiSelect
+                          label="Выбрать теги"
+                          options={taxonomy.tags.map((tag) => ({
+                            value: tag.id,
+                            label: tag.name,
+                          }))}
+                          selected={pendingTaxonomy.tagIds}
+                          onChange={(values) =>
+                            setPendingTaxonomy((prev) => ({ ...prev, tagIds: values }))
+                          }
+                          disabled={taxonomy.tags.length === 0}
+                        />
                       </div>
                       <div className="mt-3 flex gap-2">
                         <Input
@@ -1152,6 +1532,61 @@ export default function MaterialsPage() {
                         </Button>
                       </div>
                     </div>
+
+                <div>
+                  <Label className="text-sm font-medium">Политические союзы и блоки</Label>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {pendingTaxonomy.allianceIds.length > 0 ? (
+                      pendingTaxonomy.allianceIds.map((id) => {
+                        const alliance = taxonomy.alliances.find((item) => item.id === id)
+                        if (!alliance) return null
+                        return (
+                          <Badge key={`selected-alliance-${id}`} variant="secondary" className="gap-1">
+                            {alliance.name}
+                            <button
+                              type="button"
+                              className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-sm hover:text-destructive"
+                              onClick={() => removeSelection('allianceIds', id)}
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        )
+                      })
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Не выбрано</span>
+                    )}
+                  </div>
+                  <div className="mt-3">
+                    <FilterMultiSelect
+                      label="Выбрать союзы и блоки"
+                      options={taxonomy.alliances.map((alliance) => ({
+                        value: alliance.id,
+                        label: alliance.name,
+                      }))}
+                      selected={pendingTaxonomy.allianceIds}
+                      onChange={(values) =>
+                        setPendingTaxonomy((prev) => ({ ...prev, allianceIds: values }))
+                      }
+                      disabled={taxonomy.alliances.length === 0}
+                    />
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <Input
+                      value={newTaxonomyInputs.alliance}
+                      onChange={handleNewTaxonomyInputChange('alliance')}
+                      placeholder="Новый союз или блок"
+                      className="h-9"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={() => handleCreateTaxonomyItem('alliance')}
+                      disabled={creatingTaxonomy === 'alliance'}
+                    >
+                      {creatingTaxonomy === 'alliance' ? 'Добавление...' : 'Добавить'}
+                    </Button>
+                  </div>
+                </div>
 
                     <div className="grid gap-4 md:grid-cols-2">
                       <div>

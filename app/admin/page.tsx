@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react'
 import { Database, CheckCircle2, Archive, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { FeedManager } from '@/components/feed-manager'
 import { AdminHeader } from '@/components/admin-header'
+import Link from 'next/link'
 
 interface Stats {
   total: number
@@ -150,8 +150,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Feed Manager */}
-          <FeedManager lastSync={stats?.lastFetch || null} />
         </div>
       </div>
     </>

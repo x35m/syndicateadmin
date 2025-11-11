@@ -1,748 +1,984 @@
 'use client'
 
-import { useEffect, useState, ChangeEvent } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AdminHeader } from '@/components/admin-header'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
-import { Category, Theme, Tag, Country, City } from '@/lib/types'
+import { Alliance, Category, City, Country, Tag, Theme } from '@/lib/types'
+import {
+  MoreHorizontal,
+  PencilLine,
+  Plus,
+  Settings2,
+  Trash2,
+} from 'lucide-react'
 
-type CountryWithCities = Country & { cities: City[] }
+type SimpleKind = 'categories' | 'themes' | 'tags' | 'alliances'
+type TaxonomyKind = SimpleKind | 'countries' | 'cities'
+type ApiType = 'category' | 'theme' | 'tag' | 'alliance' | 'country' | 'city'
+type PromptType = 'category' | 'theme' | 'tag' | 'alliance' | 'country' | 'city'
 
-type TaxonomyType = 'category' | 'theme' | 'tag' | 'country' | 'city'
+interface CountryWithRelations extends Country {
+  cities: City[]
+}
 
-type TaxonomyState = {
+interface CityRow extends City {
+  countryName: string
+}
+
+interface TaxonomyState {
   categories: Category[]
   themes: Theme[]
   tags: Tag[]
-  countries: CountryWithCities[]
+  alliances: Alliance[]
+  countries: CountryWithRelations[]
 }
 
 const defaultState: TaxonomyState = {
   categories: [],
   themes: [],
   tags: [],
+  alliances: [],
   countries: [],
 }
 
+const TAB_CONFIG: Record<TaxonomyKind, { label: string; type: ApiType }> = {
+  categories: { label: 'Категории', type: 'category' },
+  themes: { label: 'Темы', type: 'theme' },
+  tags: { label: 'Теги', type: 'tag' },
+  alliances: { label: 'Политические союзы и блоки', type: 'alliance' },
+  countries: { label: 'Страны', type: 'country' },
+  cities: { label: 'Города', type: 'city' },
+}
+
+const PROMPT_LABELS: Record<PromptType, string> = {
+  category: 'Промпт категорий',
+  theme: 'Промпт тем',
+  tag: 'Промпт тегов',
+  alliance: 'Промпт политических союзов и блоков',
+  country: 'Промпт стран',
+  city: 'Промпт городов',
+}
+
+type ModalState =
+  | null
+  | {
+      mode: 'create' | 'edit'
+      type: ApiType
+      id?: number
+      name: string
+      countryId?: number | null
+    }
+
+type PromptModalState = {
+  type: PromptType
+  value: string
+} | null
+
 export default function TaxonomyPage() {
+  const [activeTab, setActiveTab] = useState<TaxonomyKind>('categories')
   const [taxonomy, setTaxonomy] = useState<TaxonomyState>(defaultState)
   const [loading, setLoading] = useState(true)
-  const [creating, setCreating] = useState<null | TaxonomyType>(null)
-  const [newValues, setNewValues] = useState({
+  const [modal, setModal] = useState<ModalState>(null)
+  const [savingItem, setSavingItem] = useState(false)
+  const [promptModal, setPromptModal] = useState<PromptModalState>(null)
+  const [prompts, setPrompts] = useState<Record<PromptType, string>>({
     category: '',
     theme: '',
     tag: '',
+    alliance: '',
     country: '',
     city: '',
-    cityCountryId: '',
   })
-  const [editing, setEditing] = useState<{
-    type: TaxonomyType
-    id: number
-    name: string
-    countryId?: number | ''
-  } | null>(null)
-  const [updating, setUpdating] = useState(false)
-  const [deleting, setDeleting] = useState<{ type: TaxonomyType; id: number } | null>(null)
+  const [loadingPrompts, setLoadingPrompts] = useState(false)
+  const [savingPrompt, setSavingPrompt] = useState(false)
+  const [search, setSearch] = useState<Record<TaxonomyKind, string>>({
+    categories: '',
+    themes: '',
+    tags: '',
+    alliances: '',
+    countries: '',
+    cities: '',
+  })
+  const [selectedIds, setSelectedIds] = useState<
+    Record<TaxonomyKind, Set<number>>
+  >({
+    categories: new Set(),
+    themes: new Set(),
+    tags: new Set(),
+    alliances: new Set(),
+    countries: new Set(),
+    cities: new Set(),
+  })
+
+  const cityRows: CityRow[] = useMemo(() => {
+    return taxonomy.countries.flatMap((country) =>
+      country.cities.map((city) => ({
+        ...city,
+        countryName: country.name,
+      }))
+    )
+  }, [taxonomy.countries])
 
   const fetchTaxonomy = async () => {
     try {
       setLoading(true)
       const response = await fetch('/api/taxonomy')
       const result = await response.json()
-
-      if (result.success) {
-        setTaxonomy({
-          categories: result.categories ?? [],
-          themes: result.themes ?? [],
-          tags: result.tags ?? [],
-          countries: (result.countries ?? []) as CountryWithCities[],
-        })
-      } else {
-        toast.error(result.error || 'Не удалось получить данные')
+      if (!result.success) {
+        toast.error(result.error || 'Не удалось получить данные таксономии')
+        return
       }
+      setTaxonomy({
+        categories: result.categories ?? [],
+        themes: result.themes ?? [],
+        tags: result.tags ?? [],
+        alliances: result.alliances ?? [],
+        countries: (result.countries ?? []) as CountryWithRelations[],
+      })
     } catch (error) {
       console.error('Error fetching taxonomy:', error)
-      toast.error('Не удалось получить данные')
+      toast.error('Не удалось получить данные таксономии')
     } finally {
       setLoading(false)
     }
   }
 
+  const fetchPrompts = async () => {
+    try {
+      setLoadingPrompts(true)
+      const response = await fetch('/api/taxonomy/prompts')
+      const result = await response.json()
+      if (result.success && result.data) {
+        setPrompts(result.data)
+      }
+    } catch (error) {
+      console.error('Error fetching taxonomy prompts:', error)
+      toast.error('Не удалось загрузить системные промпты')
+    } finally {
+      setLoadingPrompts(false)
+    }
+  }
+
   useEffect(() => {
     fetchTaxonomy()
+    fetchPrompts()
   }, [])
 
-  const handleChange = (key: keyof typeof newValues) => (event: ChangeEvent<HTMLInputElement> | ChangeEvent<HTMLSelectElement>) => {
-    setNewValues((prev) => ({
-      ...prev,
-      [key]: event.target.value,
-    }))
-  }
-
-  const handleCreate = async (type: TaxonomyType) => {
-    const valueKey = type === 'city' ? 'city' : type
-    const value = newValues[valueKey]
-
-    if (!value.trim()) {
-      toast.warning('Введите название')
-      return
-    }
-
-    if (type === 'city' && !newValues.cityCountryId) {
-      toast.warning('Выберите страну для нового города')
-      return
-    }
-
-    try {
-      setCreating(type)
-      const response = await fetch('/api/taxonomy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type,
-          name: value,
-          countryId: type === 'city' ? Number(newValues.cityCountryId) : undefined,
-        }),
-      })
-
-      const result = await response.json()
-
-      if (!result.success) {
-        toast.error(result.error || 'Не удалось создать элемент')
-        return
+  const handleSelectionToggle = (tab: TaxonomyKind, id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev[tab])
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
       }
-
-      await fetchTaxonomy()
-      toast.success('Элемент добавлен')
-      setNewValues((prev) => ({
-        ...prev,
-        [valueKey]: '',
-      }))
-    } catch (error) {
-      console.error('Error creating taxonomy item:', error)
-      toast.error('Не удалось создать элемент')
-    } finally {
-      setCreating(null)
-    }
+      return { ...prev, [tab]: next }
+    })
   }
 
-  const handleUpdate = async () => {
-    if (!editing) return
+  const handleToggleAll = (tab: TaxonomyKind, ids: number[]) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev[tab])
+      const allSelected = ids.every((id) => next.has(id))
+      if (allSelected) {
+        ids.forEach((id) => next.delete(id))
+      } else {
+        ids.forEach((id) => next.add(id))
+      }
+      return { ...prev, [tab]: next }
+    })
+  }
 
-    const trimmedName = editing.name.trim()
+  const resetSelection = (tab: TaxonomyKind) => {
+    setSelectedIds((prev) => ({ ...prev, [tab]: new Set() }))
+  }
+
+  const openCreateModal = (tab: TaxonomyKind) => {
+    const type = TAB_CONFIG[tab].type
+    setModal({
+      mode: 'create',
+      type,
+      name: '',
+      countryId: type === 'city' ? null : undefined,
+    })
+  }
+
+  const openEditModal = (
+    tab: TaxonomyKind,
+    id: number,
+    name: string,
+    countryId?: number | null
+  ) => {
+    const type = TAB_CONFIG[tab].type
+    setModal({
+      mode: 'edit',
+      type,
+      id,
+      name,
+      countryId: type === 'city' ? countryId ?? null : undefined,
+    })
+  }
+
+  const handleSaveItem = async () => {
+    if (!modal) return
+    const { mode, type, name, id, countryId } = modal
+    const trimmedName = name.trim()
+
     if (!trimmedName) {
-      toast.warning('Введите название')
+      toast.warning('Название не может быть пустым')
       return
     }
 
-    if (editing.type === 'city' && !editing.countryId) {
-      toast.warning('Выберите страну')
+    if (type === 'city' && !countryId) {
+      toast.warning('Выберите страну для города')
       return
     }
 
     try {
-      setUpdating(true)
-      const response = await fetch('/api/taxonomy', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: editing.type,
-          id: editing.id,
-          name: trimmedName,
-          countryId:
-            editing.type === 'city' && editing.countryId
-              ? Number(editing.countryId)
-              : undefined,
-        }),
-      })
-
-      const result = await response.json()
-
-      if (!response.ok || !result.success) {
-        toast.error(result.error || 'Не удалось сохранить изменения')
-        return
+      setSavingItem(true)
+      if (mode === 'create') {
+        const response = await fetch('/api/taxonomy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type,
+            name: trimmedName,
+            countryId: type === 'city' ? countryId : undefined,
+          }),
+        })
+        const result = await response.json()
+        if (!result.success) {
+          toast.error(result.error || 'Не удалось создать элемент')
+          return
+        }
+        toast.success('Элемент создан')
+      } else if (id !== undefined) {
+        const response = await fetch('/api/taxonomy', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type,
+            id,
+            name: trimmedName,
+            countryId: type === 'city' ? countryId : undefined,
+          }),
+        })
+        const result = await response.json()
+        if (!response.ok || !result.success) {
+          toast.error(result.error || 'Не удалось обновить элемент')
+          return
+        }
+        toast.success('Элемент обновлён')
       }
-
-      toast.success('Изменения сохранены')
-      setEditing(null)
       await fetchTaxonomy()
+      setModal(null)
     } catch (error) {
-      console.error('Error updating taxonomy item:', error)
-      toast.error('Не удалось сохранить изменения')
+      console.error('Error saving taxonomy item:', error)
+      toast.error('Не удалось сохранить элемент')
     } finally {
-      setUpdating(false)
+      setSavingItem(false)
     }
   }
 
-  const handleDelete = async (type: TaxonomyType, id: number, name?: string) => {
-    const confirmationMessage =
-      type === 'country'
-        ? `Удалить страну "${name ?? id}" вместе со всеми городами?`
-        : `Удалить элемент "${name ?? id}"?`
-
-    if (typeof window !== 'undefined' && !window.confirm(confirmationMessage)) {
-      return
-    }
-
+  const deleteItem = async (type: ApiType, id: number) => {
     try {
-      setDeleting({ type, id })
       const response = await fetch(`/api/taxonomy?type=${type}&id=${id}`, {
         method: 'DELETE',
       })
-
       const result = await response.json()
-
       if (!response.ok || !result.success) {
         toast.error(result.error || 'Не удалось удалить элемент')
-        return
+        return false
       }
-
-      if (editing && editing.type === type && editing.id === id) {
-        setEditing(null)
-      }
-
-      toast.success('Элемент удалён')
-      await fetchTaxonomy()
+      return true
     } catch (error) {
       console.error('Error deleting taxonomy item:', error)
       toast.error('Не удалось удалить элемент')
-    } finally {
-      setDeleting(null)
+      return false
     }
+  }
+
+  const handleBulkDelete = async (tab: TaxonomyKind) => {
+    const ids = Array.from(selectedIds[tab])
+    if (ids.length === 0) return
+
+    const confirmMessage =
+      tab === 'countries'
+        ? 'Удалить выбранные страны? Все связанные города будут удалены.'
+        : tab === 'cities'
+        ? 'Удалить выбранные города?'
+        : 'Удалить выбранные элементы?'
+
+    if (!window.confirm(confirmMessage)) {
+      return
+    }
+
+    const type = TAB_CONFIG[tab].type
+    for (const id of ids) {
+      const success = await deleteItem(type, id)
+      if (!success) break
+    }
+    await fetchTaxonomy()
+    resetSelection(tab)
+    toast.success('Удаление выполнено')
+  }
+
+  const openPromptDialog = (tab: TaxonomyKind) => {
+    const type = TAB_CONFIG[tab].type as PromptType
+    setPromptModal({
+      type,
+      value: prompts[type] ?? '',
+    })
+  }
+
+  const handleSavePrompt = async () => {
+    if (!promptModal) return
+    const { type, value } = promptModal
+    const trimmed = value.trim()
+    if (!trimmed) {
+      toast.warning('Промпт не может быть пустым')
+      return
+    }
+    try {
+      setSavingPrompt(true)
+      const response = await fetch('/api/taxonomy/prompts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, prompt: trimmed }),
+      })
+      const result = await response.json()
+      if (!response.ok || !result.success) {
+        toast.error(result.error || 'Не удалось сохранить промпт')
+        return
+      }
+      setPrompts((prev) => ({ ...prev, [type]: trimmed }))
+      toast.success('Промпт обновлён')
+      setPromptModal(null)
+    } catch (error) {
+      console.error('Error saving taxonomy prompt:', error)
+      toast.error('Не удалось сохранить промпт')
+    } finally {
+      setSavingPrompt(false)
+    }
+  }
+
+  const filteredSimpleItems = (tab: SimpleKind) => {
+    const query = search[tab].toLowerCase()
+    const items = taxonomy[tab] as { id: number; name: string }[]
+    if (!query) return items
+    return items.filter((item) => item.name.toLowerCase().includes(query))
+  }
+
+  const filteredCountries = useMemo(() => {
+    const query = search.countries.toLowerCase()
+    if (!query) return taxonomy.countries
+    return taxonomy.countries.filter((country) =>
+      country.name.toLowerCase().includes(query)
+    )
+  }, [taxonomy.countries, search.countries])
+
+  const filteredCities = useMemo(() => {
+    const query = search.cities.toLowerCase()
+    if (!query) return cityRows
+    return cityRows.filter(
+      (city) =>
+        city.name.toLowerCase().includes(query) ||
+        city.countryName.toLowerCase().includes(query)
+    )
+  }, [cityRows, search.cities])
+
+  const activeSelectionCount = selectedIds[activeTab].size
+
+  const renderSimpleTable = (tab: SimpleKind) => {
+    const items = filteredSimpleItems(tab)
+    const allIds = items.map((item) => item.id)
+    const selection = selectedIds[tab]
+    const type = TAB_CONFIG[tab].type
+
+    return (
+      <Card>
+        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle>{TAB_CONFIG[tab].label}</CardTitle>
+            <p className="text-sm text-muted-foreground mt-2">
+              Используйте таблицу для просмотра, редактирования и массового удаления.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder="Поиск..."
+                value={search[tab]}
+                onChange={(event) =>
+                  setSearch((prev) => ({ ...prev, [tab]: event.target.value }))
+                }
+                className="h-9 w-full sm:w-48"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => openPromptDialog(tab)}
+                disabled={loadingPrompts}
+              >
+                <Settings2 className="mr-2 h-4 w-4" />
+                Системный промпт
+              </Button>
+            </div>
+            <Button size="sm" onClick={() => openCreateModal(tab)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Добавить
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <Skeleton key={index} className="h-10 w-full" />
+              ))}
+            </div>
+          ) : items.length === 0 ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              Элементы не найдены.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-12">
+                    <Checkbox
+                      checked={
+                        items.length > 0 && allIds.every((id) => selection.has(id))
+                      }
+                      onCheckedChange={() => handleToggleAll(tab, allIds)}
+                    />
+                  </TableHead>
+                  <TableHead>Название</TableHead>
+                  <TableHead className="w-16 text-right">Действия</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((item) => (
+                  <TableRow key={item.id}>
+                    <TableCell>
+                      <Checkbox
+                        checked={selection.has(item.id)}
+                        onCheckedChange={() => handleSelectionToggle(tab, item.id)}
+                      />
+                    </TableCell>
+                    <TableCell className="font-medium">{item.name}</TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() =>
+                              openEditModal(tab, item.id, item.name)
+                            }
+                          >
+                            <PencilLine className="mr-2 h-4 w-4" />
+                            Редактировать
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={async () => {
+                              const confirmed = window.confirm(
+                                'Удалить элемент?'
+                              )
+                              if (!confirmed) return
+                              const success = await deleteItem(type, item.id)
+                              if (success) {
+                                toast.success('Элемент удалён')
+                                await fetchTaxonomy()
+                              }
+                            }}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Удалить
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const renderCountriesTable = () => {
+    const tab: TaxonomyKind = 'countries'
+    const items = filteredCountries
+    const selection = selectedIds[tab]
+    const allIds = items.map((country) => country.id)
+
+    return (
+      <Card>
+        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle>Страны</CardTitle>
+            <p className="text-sm text-muted-foreground mt-2">
+              Управляйте списком стран и связанных городов.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder="Поиск страны..."
+                value={search.countries}
+                onChange={(event) =>
+                  setSearch((prev) => ({ ...prev, countries: event.target.value }))
+                }
+                className="h-9 w-full sm:w-56"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => openPromptDialog('countries')}
+                disabled={loadingPrompts}
+              >
+                <Settings2 className="mr-2 h-4 w-4" />
+                Системный промпт
+              </Button>
+            </div>
+            <Button size="sm" onClick={() => openCreateModal('countries')}>
+              <Plus className="mr-2 h-4 w-4" />
+              Добавить страну
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <Skeleton key={index} className="h-10 w-full" />
+              ))}
+            </div>
+          ) : items.length === 0 ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              Страны не найдены.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-12">
+                    <Checkbox
+                      checked={
+                        items.length > 0 && allIds.every((id) => selection.has(id))
+                      }
+                      onCheckedChange={() => handleToggleAll(tab, allIds)}
+                    />
+                  </TableHead>
+                  <TableHead>Название</TableHead>
+                  <TableHead className="w-24 text-right">Городов</TableHead>
+                  <TableHead className="w-16 text-right">Действия</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((country) => (
+                  <TableRow key={country.id}>
+                    <TableCell>
+                      <Checkbox
+                        checked={selection.has(country.id)}
+                        onCheckedChange={() =>
+                          handleSelectionToggle(tab, country.id)
+                        }
+                      />
+                    </TableCell>
+                    <TableCell className="font-medium">{country.name}</TableCell>
+                    <TableCell className="text-right">
+                      {country.cities.length}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() =>
+                              openEditModal('countries', country.id, country.name)
+                            }
+                          >
+                            <PencilLine className="mr-2 h-4 w-4" />
+                            Редактировать
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={async () => {
+                              const confirmed = window.confirm(
+                                'Удалить страну и все связанные города?'
+                              )
+                              if (!confirmed) return
+                              const success = await deleteItem('country', country.id)
+                              if (success) {
+                                toast.success('Страна удалена')
+                                await fetchTaxonomy()
+                              }
+                            }}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Удалить
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const renderCitiesTable = () => {
+    const tab: TaxonomyKind = 'cities'
+    const items = filteredCities
+    const selection = selectedIds[tab]
+    const allIds = items.map((city) => city.id)
+
+    return (
+      <Card>
+        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle>Города</CardTitle>
+            <p className="text-sm text-muted-foreground mt-2">
+              Управляйте списком городов и их принадлежностью к странам.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder="Поиск города или страны..."
+                value={search.cities}
+                onChange={(event) =>
+                  setSearch((prev) => ({ ...prev, cities: event.target.value }))
+                }
+                className="h-9 w-full sm:w-64"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => openPromptDialog('cities')}
+                disabled={loadingPrompts}
+              >
+                <Settings2 className="mr-2 h-4 w-4" />
+                Системный промпт
+              </Button>
+            </div>
+            <Button size="sm" onClick={() => openCreateModal('cities')}>
+              <Plus className="mr-2 h-4 w-4" />
+              Добавить город
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <Skeleton key={index} className="h-10 w-full" />
+              ))}
+            </div>
+          ) : items.length === 0 ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              Города не найдены.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-12">
+                    <Checkbox
+                      checked={
+                        items.length > 0 && allIds.every((id) => selection.has(id))
+                      }
+                      onCheckedChange={() => handleToggleAll(tab, allIds)}
+                    />
+                  </TableHead>
+                  <TableHead>Город</TableHead>
+                  <TableHead>Страна</TableHead>
+                  <TableHead className="w-16 text-right">Действия</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((city) => (
+                  <TableRow key={city.id}>
+                    <TableCell>
+                      <Checkbox
+                        checked={selection.has(city.id)}
+                        onCheckedChange={() =>
+                          handleSelectionToggle(tab, city.id)
+                        }
+                      />
+                    </TableCell>
+                    <TableCell className="font-medium">{city.name}</TableCell>
+                    <TableCell>{city.countryName}</TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() =>
+                              openEditModal(
+                                'cities',
+                                city.id,
+                                city.name,
+                                city.countryId
+                              )
+                            }
+                          >
+                            <PencilLine className="mr-2 h-4 w-4" />
+                            Редактировать
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={async () => {
+                              const confirmed = window.confirm('Удалить город?')
+                              if (!confirmed) return
+                              const success = await deleteItem('city', city.id)
+                              if (success) {
+                                toast.success('Город удалён')
+                                await fetchTaxonomy()
+                              }
+                            }}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Удалить
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    )
   }
 
   return (
     <>
       <AdminHeader />
       <div className="min-h-screen bg-background p-8">
-        <div className="container space-y-8">
-          <div>
-            <h1 className="text-3xl font-bold">Справочники материала</h1>
-            <p className="text-muted-foreground mt-2">
-              Управление категориями, темами, тегами, странами и городами, которые можно привязывать к материалам.
+        <div className="container space-y-6">
+          <div className="flex flex-col gap-2">
+            <h1 className="text-3xl font-bold">Справочники</h1>
+            <p className="text-muted-foreground max-w-2xl">
+              Управляйте таксономиями материалов, настраивайте системные промпты для
+              нейросети и выполняйте массовые операции над элементами.
             </p>
           </div>
 
-          {loading ? (
-            <div className="space-y-4">
-              <Skeleton className="h-40 w-full" />
-              <Skeleton className="h-40 w-full" />
-              <Skeleton className="h-72 w-full" />
-            </div>
-          ) : (
-            <div className="grid gap-6 xl:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Категории</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                <div className="space-y-2">
-                    {taxonomy.categories.length > 0 ? (
-                      taxonomy.categories.map((category) => (
-                      <div
-                        key={category.id}
-                        className="flex items-center justify-between rounded-md border px-3 py-2"
-                      >
-                        {editing?.type === 'category' && editing.id === category.id ? (
-                          <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
-                            <Input
-                              value={editing.name}
-                              onChange={(e) =>
-                                setEditing((prev) =>
-                                  prev ? { ...prev, name: e.target.value } : prev
-                                )
-                              }
-                              className="h-9 flex-1"
-                              autoFocus
-                            />
-                            <div className="flex gap-2">
-                              <Button size="sm" onClick={handleUpdate} disabled={updating}>
-                                Сохранить
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setEditing(null)}
-                                disabled={updating}
-                              >
-                                Отмена
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <span className="text-sm font-medium">{category.name}</span>
-                            <div className="flex items-center gap-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  setEditing({
-                                    type: 'category',
-                                    id: category.id,
-                                    name: category.name,
-                                  })
-                                }
-                              >
-                                Изменить
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleDelete('category', category.id, category.name)}
-                                disabled={deleting?.type === 'category' && deleting.id === category.id}
-                              >
-                                Удалить
-                              </Button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                      ))
-                    ) : (
-                      <span className="text-sm text-muted-foreground">Список пуст</span>
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <Input
-                      value={newValues.category}
-                      onChange={handleChange('category')}
-                      placeholder="Новая категория"
-                      className="h-9"
-                    />
-                    <Button
-                      size="sm"
-                      onClick={() => handleCreate('category')}
-                      disabled={creating === 'category'}
-                    >
-                      {creating === 'category' ? 'Добавление...' : 'Добавить'}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TaxonomyKind)}>
+            <TabsList className="flex-wrap">
+              {(
+                Object.keys(TAB_CONFIG) as TaxonomyKind[]
+              ).map((tab) => (
+                <TabsTrigger key={tab} value={tab}>
+                  {TAB_CONFIG[tab].label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>Темы</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                <div className="space-y-2">
-                    {taxonomy.themes.length > 0 ? (
-                      taxonomy.themes.map((theme) => (
-                      <div
-                        key={theme.id}
-                        className="flex items-center justify-between rounded-md border px-3 py-2"
-                      >
-                        {editing?.type === 'theme' && editing.id === theme.id ? (
-                          <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
-                            <Input
-                              value={editing.name}
-                              onChange={(e) =>
-                                setEditing((prev) =>
-                                  prev ? { ...prev, name: e.target.value } : prev
-                                )
-                              }
-                              className="h-9 flex-1"
-                              autoFocus
-                            />
-                            <div className="flex gap-2">
-                              <Button size="sm" onClick={handleUpdate} disabled={updating}>
-                                Сохранить
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setEditing(null)}
-                                disabled={updating}
-                              >
-                                Отмена
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <span className="text-sm font-medium">{theme.name}</span>
-                            <div className="flex items-center gap-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  setEditing({
-                                    type: 'theme',
-                                    id: theme.id,
-                                    name: theme.name,
-                                  })
-                                }
-                              >
-                                Изменить
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleDelete('theme', theme.id, theme.name)}
-                                disabled={deleting?.type === 'theme' && deleting.id === theme.id}
-                              >
-                                Удалить
-                              </Button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                      ))
-                    ) : (
-                      <span className="text-sm text-muted-foreground">Список пуст</span>
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <Input
-                      value={newValues.theme}
-                      onChange={handleChange('theme')}
-                      placeholder="Новая тема"
-                      className="h-9"
-                    />
-                    <Button
-                      size="sm"
-                      onClick={() => handleCreate('theme')}
-                      disabled={creating === 'theme'}
-                    >
-                      {creating === 'theme' ? 'Добавление...' : 'Добавить'}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Теги</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                <div className="space-y-2">
-                    {taxonomy.tags.length > 0 ? (
-                      taxonomy.tags.map((tag) => (
-                      <div
-                        key={tag.id}
-                        className="flex items-center justify-between rounded-md border px-3 py-2"
-                      >
-                        {editing?.type === 'tag' && editing.id === tag.id ? (
-                          <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
-                            <Input
-                              value={editing.name}
-                              onChange={(e) =>
-                                setEditing((prev) =>
-                                  prev ? { ...prev, name: e.target.value } : prev
-                                )
-                              }
-                              className="h-9 flex-1"
-                              autoFocus
-                            />
-                            <div className="flex gap-2">
-                              <Button size="sm" onClick={handleUpdate} disabled={updating}>
-                                Сохранить
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setEditing(null)}
-                                disabled={updating}
-                              >
-                                Отмена
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <span className="text-sm font-medium">{tag.name}</span>
-                            <div className="flex items-center gap-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  setEditing({
-                                    type: 'tag',
-                                    id: tag.id,
-                                    name: tag.name,
-                                  })
-                                }
-                              >
-                                Изменить
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleDelete('tag', tag.id, tag.name)}
-                                disabled={deleting?.type === 'tag' && deleting.id === tag.id}
-                              >
-                                Удалить
-                              </Button>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                      ))
-                    ) : (
-                      <span className="text-sm text-muted-foreground">Список пуст</span>
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <Input
-                      value={newValues.tag}
-                      onChange={handleChange('tag')}
-                      placeholder="Новый тег"
-                      className="h-9"
-                    />
-                    <Button
-                      size="sm"
-                      onClick={() => handleCreate('tag')}
-                      disabled={creating === 'tag'}
-                    >
-                      {creating === 'tag' ? 'Добавление...' : 'Добавить'}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="xl:col-span-2">
-                <CardHeader>
-                  <CardTitle>Страны и города</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="space-y-4">
-                    {taxonomy.countries.length > 0 ? (
-                      taxonomy.countries.map((country) => (
-                        <div key={country.id} className="rounded-md border p-4 space-y-3">
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                            {editing?.type === 'country' && editing.id === country.id ? (
-                              <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
-                                <Input
-                                  value={editing.name}
-                                  onChange={(e) =>
-                                    setEditing((prev) =>
-                                      prev ? { ...prev, name: e.target.value } : prev
-                                    )
-                                  }
-                                  className="h-9 flex-1"
-                                  autoFocus
-                                />
-                                <div className="flex gap-2">
-                                  <Button size="sm" onClick={handleUpdate} disabled={updating}>
-                                    Сохранить
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => setEditing(null)}
-                                    disabled={updating}
-                                  >
-                                    Отмена
-                                  </Button>
-                                </div>
-                              </div>
-                            ) : (
-                              <>
-                                <span className="text-sm font-semibold">{country.name}</span>
-                                <div className="flex items-center gap-2">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() =>
-                                      setEditing({
-                                        type: 'country',
-                                        id: country.id,
-                                        name: country.name,
-                                      })
-                                    }
-                                  >
-                                    Изменить
-                                  </Button>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() =>
-                                      handleDelete('country', country.id, country.name)
-                                    }
-                                    disabled={
-                                      deleting?.type === 'country' && deleting.id === country.id
-                                    }
-                                  >
-                                    Удалить
-                                  </Button>
-                                </div>
-                              </>
-                            )}
-                          </div>
-
-                          <div className="space-y-2">
-                            {country.cities.length > 0 ? (
-                              country.cities.map((city) => (
-                                <div
-                                  key={city.id}
-                                  className="flex flex-col gap-2 rounded-md border px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
-                                >
-                                  {editing?.type === 'city' && editing.id === city.id ? (
-                                    <div className="flex w-full flex-col gap-2 md:flex-row md:items-center">
-                                      <Input
-                                        value={editing.name}
-                                        onChange={(e) =>
-                                          setEditing((prev) =>
-                                            prev ? { ...prev, name: e.target.value } : prev
-                                          )
-                                        }
-                                        className="h-9 flex-1"
-                                        autoFocus
-                                      />
-                                      <select
-                                        className="w-full rounded-md border bg-background px-3 py-2 text-sm md:w-52"
-                                        value={
-                                          editing.countryId !== undefined ? String(editing.countryId) : ''
-                                        }
-                                        onChange={(event) =>
-                                          setEditing((prev) =>
-                                            prev
-                                              ? {
-                                                  ...prev,
-                                                  countryId: event.target.value
-                                                    ? Number(event.target.value)
-                                                    : '',
-                                                }
-                                              : prev
-                                          )
-                                        }
-                                      >
-                                        <option value="">Страна</option>
-                                        {taxonomy.countries.map((option) => (
-                                          <option key={option.id} value={option.id}>
-                                            {option.name}
-                                          </option>
-                                        ))}
-                                      </select>
-                                      <div className="flex gap-2">
-                                        <Button size="sm" onClick={handleUpdate} disabled={updating}>
-                                          Сохранить
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          onClick={() => setEditing(null)}
-                                          disabled={updating}
-                                        >
-                                          Отмена
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <>
-                                      <div>
-                                        <div className="text-sm font-medium">{city.name}</div>
-                                        <div className="text-xs text-muted-foreground">
-                                          Принадлежит: {country.name}
-                                        </div>
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={() =>
-                                            setEditing({
-                                              type: 'city',
-                                              id: city.id,
-                                              name: city.name,
-                                              countryId: city.countryId,
-                                            })
-                                          }
-                                        >
-                                          Изменить
-                                        </Button>
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          onClick={() => handleDelete('city', city.id, city.name)}
-                                          disabled={
-                                            deleting?.type === 'city' && deleting.id === city.id
-                                          }
-                                        >
-                                          Удалить
-                                        </Button>
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
-                              ))
-                            ) : (
-                              <div className="text-xs text-muted-foreground">
-                                Города не добавлены
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <span className="text-sm text-muted-foreground">Список стран пуст</span>
-                    )}
-                  </div>
-
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label className="text-sm font-medium">Добавить страну</Label>
-                      <div className="flex flex-col gap-2 sm:flex-row">
-                        <Input
-                          value={newValues.country}
-                          onChange={handleChange('country')}
-                          placeholder="Название страны"
-                          className="h-9"
-                        />
-                        <Button
-                          size="sm"
-                          onClick={() => handleCreate('country')}
-                          disabled={creating === 'country'}
-                        >
-                          {creating === 'country' ? 'Добавление...' : 'Добавить'}
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label className="text-sm font-medium">Добавить город</Label>
-                      <select
-                        className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                        value={newValues.cityCountryId}
-                        onChange={handleChange('cityCountryId')}
-                      >
-                        <option value="">Выберите страну</option>
-                        {taxonomy.countries.map((country) => (
-                          <option key={country.id} value={country.id}>
-                            {country.name}
-                          </option>
-                        ))}
-                      </select>
-                      <div className="flex flex-col gap-2 sm:flex-row">
-                        <Input
-                          value={newValues.city}
-                          onChange={handleChange('city')}
-                          placeholder="Название города"
-                          className="h-9"
-                          disabled={!newValues.cityCountryId}
-                        />
-                        <Button
-                          size="sm"
-                          onClick={() => handleCreate('city')}
-                          disabled={!newValues.cityCountryId || creating === 'city'}
-                        >
-                          {creating === 'city' ? 'Добавление...' : 'Добавить'}
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
+            <TabsContent value="categories">{renderSimpleTable('categories')}</TabsContent>
+            <TabsContent value="themes">{renderSimpleTable('themes')}</TabsContent>
+            <TabsContent value="tags">{renderSimpleTable('tags')}</TabsContent>
+            <TabsContent value="alliances">{renderSimpleTable('alliances')}</TabsContent>
+            <TabsContent value="countries">{renderCountriesTable()}</TabsContent>
+            <TabsContent value="cities">{renderCitiesTable()}</TabsContent>
+          </Tabs>
         </div>
       </div>
+
+      {/* Item Modal */}
+      <Dialog open={modal !== null} onOpenChange={(open) => !open && setModal(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {modal?.mode === 'create' ? 'Создать элемент' : 'Редактировать элемент'}
+            </DialogTitle>
+            <DialogDescription>
+              {modal
+                ? `Тип: ${TAB_CONFIG[
+                    (Object.keys(TAB_CONFIG) as TaxonomyKind[]).find(
+                      (tab) => TAB_CONFIG[tab].type === modal.type
+                    ) ?? 'categories'
+                  ].label}`
+                : ''}
+            </DialogDescription>
+          </DialogHeader>
+          {modal && (
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label htmlFor="taxonomy-name">Название</Label>
+                <Input
+                  id="taxonomy-name"
+                  value={modal.name}
+                  onChange={(event) =>
+                    setModal((prev) =>
+                      prev ? { ...prev, name: event.target.value } : prev
+                    )
+                  }
+                  autoFocus
+                />
+              </div>
+              {modal.type === 'city' && (
+                <div className="space-y-2">
+                  <Label htmlFor="taxonomy-country">Страна</Label>
+                  <select
+                    id="taxonomy-country"
+                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                    value={modal.countryId ?? ''}
+                    onChange={(event) =>
+                      setModal((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              countryId: event.target.value
+                                ? Number(event.target.value)
+                                : null,
+                            }
+                          : prev
+                      )
+                    }
+                  >
+                    <option value="">Выберите страну</option>
+                    {taxonomy.countries.map((country) => (
+                      <option key={country.id} value={country.id}>
+                        {country.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModal(null)} disabled={savingItem}>
+              Отмена
+            </Button>
+            <Button onClick={handleSaveItem} disabled={savingItem}>
+              {savingItem ? 'Сохранение...' : 'Сохранить'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Prompt Modal */}
+      <Dialog open={promptModal !== null} onOpenChange={(open) => !open && setPromptModal(null)}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>
+              {promptModal ? PROMPT_LABELS[promptModal.type] : 'Системный промпт'}
+            </DialogTitle>
+            <DialogDescription>
+              Опишите правила для нейросети при назначении значений этого справочника.
+            </DialogDescription>
+          </DialogHeader>
+          {promptModal && (
+            <Textarea
+              rows={8}
+              value={promptModal.value}
+              onChange={(event) =>
+                setPromptModal((prev) =>
+                  prev ? { ...prev, value: event.target.value } : prev
+                )
+              }
+              className="resize-none"
+            />
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPromptModal(null)} disabled={savingPrompt}>
+              Отмена
+            </Button>
+            <Button onClick={handleSavePrompt} disabled={savingPrompt}>
+              {savingPrompt ? 'Сохранение...' : 'Сохранить'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Actions */}
+      {activeSelectionCount > 0 && (
+        <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2">
+          <Card className="border-primary shadow-xl">
+            <CardContent className="flex items-center gap-4 py-3 px-6">
+              <span className="text-sm">
+                Выбрано:{' '}
+                <span className="font-semibold text-primary">
+                  {activeSelectionCount}
+                </span>
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => handleBulkDelete(activeTab)}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Удалить
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => resetSelection(activeTab)}
+                >
+                  Сбросить
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </>
   )
 }
+

@@ -11,6 +11,7 @@ export async function POST(request: Request) {
       categoryIds,
       themeIds,
       tagIds,
+      allianceIds,
       countryId,
       cityId,
     } = body as {
@@ -18,6 +19,7 @@ export async function POST(request: Request) {
       categoryIds?: number[] | string[]
       themeIds?: number[] | string[]
       tagIds?: number[] | string[]
+      allianceIds?: number[] | string[]
       countryId?: number | string | null
       cityId?: number | string | null
     }
@@ -52,6 +54,7 @@ export async function POST(request: Request) {
       categoryIds: parseIds(categoryIds, 'категорий'),
       themeIds: parseIds(themeIds, 'тем'),
       tagIds: parseIds(tagIds, 'тегов'),
+      allianceIds: parseIds(allianceIds, 'политических союзов'),
       countryId: parseNullableNumber(countryId, 'страны'),
       cityId: parseNullableNumber(cityId, 'города'),
     }

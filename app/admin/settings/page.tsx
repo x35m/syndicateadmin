@@ -13,16 +13,15 @@ import { Save } from 'lucide-react'
 interface Settings {
   geminiApiKey: string
   summaryPrompt: string
-  taxonomySystemPrompt: string
-  taxonomyFormatPrompt: string
 }
 
 export default function SettingsPage() {
+  const defaultSummaryPrompt =
+    'Создай краткое саммари следующей статьи. Выдели основные моменты и ключевые идеи. Ответ должен быть на русском языке, лаконичным и информативным (3-5 предложений).'
+
   const [settings, setSettings] = useState<Settings>({
     geminiApiKey: '',
-    summaryPrompt: 'Создай краткое саммари следующей статьи. Выдели основные моменты и ключевые идеи. Ответ должен быть на русском языке, лаконичным и информативным (3-5 предложений).',
-    taxonomySystemPrompt: 'Ты — редактор аналитического портала. Определи страну, город, темы и теги статьи так, чтобы они помогали редакции быстро рубрицировать материалы.',
-    taxonomyFormatPrompt: 'Верни ответ строго в формате JSON:\n{\n  "summary": "краткое резюме на русском",\n  "taxonomy": {\n    "country": "Название страны или null",\n    "city": "Название города или null",\n    "themes": ["Список тем"],\n    "tags": ["Список тегов"]\n  }\n}\nНе добавляй пояснений. Если не удалось определить значение, используй null или пустой массив.',
+    summaryPrompt: defaultSummaryPrompt,
   })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -37,7 +36,10 @@ export default function SettingsPage() {
       const result = await response.json()
       
       if (result.success && result.data) {
-        setSettings(result.data)
+        setSettings({
+          geminiApiKey: result.data.geminiApiKey || '',
+          summaryPrompt: result.data.summaryPrompt || defaultSummaryPrompt,
+        })
       }
     } catch (error) {
       console.error('Error fetching settings:', error)
@@ -142,38 +144,6 @@ export default function SettingsPage() {
                 />
                 <p className="text-xs text-muted-foreground">
                   Текст статьи будет автоматически добавлен после промпта
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="taxonomySystemPrompt">Системный промпт таксономии</Label>
-                <Textarea
-                  id="taxonomySystemPrompt"
-                  rows={6}
-                  placeholder="Опиши правила подбора страны, города, тем и тегов..."
-                  value={settings.taxonomySystemPrompt}
-                  onChange={(e) =>
-                    setSettings({ ...settings, taxonomySystemPrompt: e.target.value })
-                  }
-                />
-                <p className="text-xs text-muted-foreground">
-                  Используется как системные правила для подбора страны, города, тем и тегов
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="taxonomyFormatPrompt">Формат ответа таксономии</Label>
-                <Textarea
-                  id="taxonomyFormatPrompt"
-                  rows={6}
-                  placeholder='Определи формат JSON-ответа, например {"summary": "...", "taxonomy": {...}}'
-                  value={settings.taxonomyFormatPrompt}
-                  onChange={(e) =>
-                    setSettings({ ...settings, taxonomyFormatPrompt: e.target.value })
-                  }
-                />
-                <p className="text-xs text-muted-foreground">
-                  Тут можно описать желаемую JSON-структуру ответа для автозаполнения таксономии
                 </p>
               </div>
 
