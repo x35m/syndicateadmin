@@ -5,12 +5,23 @@ export async function GET() {
   try {
     const geminiApiKey = await db.getSetting('gemini_api_key')
     const summaryPrompt = await db.getSetting('summary_prompt')
+    const taxonomySystemPrompt = await db.getSetting('taxonomy_system_prompt')
+    const taxonomyFormatPrompt = await db.getSetting('taxonomy_format_prompt')
+
+    const defaultSummaryPrompt =
+      'Создай краткое саммари следующей статьи. Выдели основные моменты и ключевые идеи. Ответ должен быть на русском языке, лаконичным и информативным (3-5 предложений).'
+    const defaultTaxonomySystemPrompt =
+      'Ты — редактор аналитического портала. Определи страну, город, темы и теги статьи так, чтобы они помогали редакции быстро рубрицировать материалы.'
+    const defaultTaxonomyFormatPrompt =
+      'Верни ответ строго в формате JSON:\n{\n  "summary": "краткое резюме на русском",\n  "taxonomy": {\n    "country": "Название страны или null",\n    "city": "Название города или null",\n    "themes": ["Список тем"],\n    "tags": ["Список тегов"]\n  }\n}\nНе добавляй пояснений. Если не удалось определить значение, используй null или пустой массив.'
 
     return NextResponse.json({
       success: true,
       data: {
         geminiApiKey: geminiApiKey || '',
-        summaryPrompt: summaryPrompt || 'Создай краткое саммари следующей статьи. Выдели основные моменты и ключевые идеи. Ответ должен быть на русском языке, лаконичным и информативным (3-5 предложений).',
+        summaryPrompt: summaryPrompt || defaultSummaryPrompt,
+        taxonomySystemPrompt: taxonomySystemPrompt || defaultTaxonomySystemPrompt,
+        taxonomyFormatPrompt: taxonomyFormatPrompt || defaultTaxonomyFormatPrompt,
       },
     })
   } catch (error) {
@@ -25,7 +36,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { geminiApiKey, summaryPrompt } = body
+    const { geminiApiKey, summaryPrompt, taxonomySystemPrompt, taxonomyFormatPrompt } = body
 
     if (!geminiApiKey) {
       return NextResponse.json(
@@ -38,6 +49,14 @@ export async function POST(request: Request) {
     
     if (summaryPrompt) {
       await db.setSetting('summary_prompt', summaryPrompt)
+    }
+
+    if (taxonomySystemPrompt) {
+      await db.setSetting('taxonomy_system_prompt', taxonomySystemPrompt)
+    }
+
+    if (taxonomyFormatPrompt) {
+      await db.setSetting('taxonomy_format_prompt', taxonomyFormatPrompt)
     }
 
     return NextResponse.json({
