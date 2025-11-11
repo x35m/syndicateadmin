@@ -32,22 +32,10 @@ const DEFAULT_ANALYSIS_PROMPT = `Ты - аналитик новостного к
    - mostly_opinion (аналитика с мнениями)
    - purely_opinion (авторская колонка, редакционная статья)
 
-ФОРМАТ ВЫВОДА (JSON):
-{
-  "meta_description": "...",
-  "summary": "...",
-  "sentiment": "...",
-  "content_type": "...",
-  "taxonomy": {
-    "country": "Название страны или null",
-    "city": "Название города или null",
-    "themes": ["Список тем"],
-    "tags": ["Список тегов"],
-    "alliances": ["Список союзов и блоков"]
-  }
-}
+5. TAXONOMY (классификация):
+   - Определи страны, города, темы, теги и политические союзы, связанные с материалом
 
-Ответ должен быть на русском языке. Никакого markdown или дополнительного текста - только чистый JSON.`
+Ответ должен быть на русском языке в формате JSON с полями: meta_description, summary, sentiment, content_type, taxonomy.`
 
 const DEFAULT_TAXONOMY_SYSTEM_PROMPT =
   'Ты — редактор аналитического портала. Определи страну, город, темы и теги статьи так, чтобы они помогали редакции быстро рубрицировать материалы.'
@@ -673,9 +661,26 @@ export async function POST(request: Request) {
       taxonomyUpdatePayload.allianceIds = ids
     }
 
+    const summary = sanitizeString(parsedResponse.summary)
+    const metaDescription = sanitizeString(parsedResponse.meta_description)
+    const sentiment = parsedResponse.sentiment as 'positive' | 'neutral' | 'negative' | undefined
+    const contentType = parsedResponse.content_type as 'purely_factual' | 'mostly_factual' | 'balanced' | 'mostly_opinion' | 'purely_opinion' | undefined
+
+    if (!summary) {
+      console.error('Summary is missing in parsed response:', parsedResponse)
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Нейросеть не вернула саммари. Уточните промпт или повторите попытку.',
+        },
+        { status: 500 }
+      )
+    }
+
+    // Сохраняем все поля, даже если они пустые (но не undefined)
     await db.updateMaterialSummary(materialId, {
       summary,
-      metaDescription: metaDescription || undefined,
+      metaDescription: metaDescription || undefined, // Сохраняем только если не пустая строка
       sentiment: sentiment || undefined,
       contentType: contentType || undefined,
       setProcessed: true, // Автоматически устанавливаем статус "processed" после успешной генерации
@@ -707,6 +712,9 @@ export async function POST(request: Request) {
       success: true,
       data: {
         summary,
+        metaDescription: metaDescription || undefined,
+        sentiment: sentiment || undefined,
+        contentType: contentType || undefined,
         material: updatedMaterial,
       },
     })
