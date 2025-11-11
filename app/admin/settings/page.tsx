@@ -238,6 +238,9 @@ export default function SettingsPage() {
                     >
                       console.anthropic.com
                     </a>
+                    . Не забудьте пополнить баланс минимум на $5-10 для старта.
+                    <br />
+                    Используется модель Claude Haiku (самый дешевый вариант) - ~$0.35-0.40/день для 400 статей.
                   </p>
                 </div>
               )}

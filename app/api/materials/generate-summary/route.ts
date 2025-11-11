@@ -1,6 +1,7 @@
 import type { Alliance, Category, City, Country, Tag, Theme } from '@/lib/types'
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import Anthropic from '@anthropic-ai/sdk'
 
 const DEFAULT_ANALYSIS_PROMPT = `Ты - аналитик новостного контента. Проанализируй статью и предоставь структурированный результат.
 
@@ -65,7 +66,7 @@ const DEFAULT_TAXONOMY_PROMPTS: Record<PromptType, string> = {
 }
 
 const GEMINI_MODEL = 'gemini-2.5-flash'
-const CLAUDE_MODEL = 'claude-3-5-sonnet-20240620'
+const CLAUDE_MODEL = 'claude-3-haiku-20240307' // Самый дешевый вариант Claude
 const MAX_CONTENT_LENGTH = 15000
 
 type AIProvider = 'gemini' | 'claude'
@@ -111,14 +112,12 @@ async function callGemini(apiKey: string, prompt: string) {
 }
 
 async function callClaude(apiKey: string, prompt: string) {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
+  const anthropic = new Anthropic({
+    apiKey: apiKey,
+  })
+
+  try {
+    const message = await anthropic.messages.create({
       model: CLAUDE_MODEL,
       max_tokens: 4096,
       messages: [
@@ -127,16 +126,22 @@ async function callClaude(apiKey: string, prompt: string) {
           content: prompt,
         },
       ],
-    }),
-  })
+    })
 
-  if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(`Claude API error: ${response.status} - ${errorText}`)
+    const responseText = message.content[0].type === 'text' ? message.content[0].text : ''
+    
+    // Очищаем от markdown блоков если они есть
+    const cleanText = responseText
+      .replace(/```json\n?/g, '')
+      .replace(/```\n?/g, '')
+      .trim()
+
+    return cleanText
+  } catch (error: any) {
+    const errorMessage = error?.error?.message || error?.message || 'Unknown error'
+    const errorType = error?.error?.type || error?.type || 'unknown'
+    throw new Error(`Claude API error: ${errorType} - ${errorMessage}`)
   }
-
-  const data = await response.json()
-  return data.content?.[0]?.text?.trim() ?? ''
 }
 
 const normalizeName = (value?: string | null) =>
@@ -167,10 +172,19 @@ const sanitizeStringArray = (value: unknown): string[] => {
 
 const extractJsonFromText = (text: string): string | null => {
   if (!text) return null
-  const start = text.indexOf('{')
-  const end = text.lastIndexOf('}')
+  
+  // Убираем markdown блоки если они есть
+  let cleanText = text
+    .replace(/```json\n?/g, '')
+    .replace(/```\n?/g, '')
+    .trim()
+  
+  // Ищем JSON объект
+  const start = cleanText.indexOf('{')
+  const end = cleanText.lastIndexOf('}')
   if (start === -1 || end === -1 || end <= start) return null
-  return text.slice(start, end + 1)
+  
+  return cleanText.slice(start, end + 1)
 }
 
 const buildTaxonomyContext = (
