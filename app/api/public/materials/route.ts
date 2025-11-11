@@ -3,32 +3,47 @@ import { db } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
-    const { searchParams } = new URL(request.url)
-    const sources = searchParams.get('sources')
-    
-    // Получаем только опубликованные материалы
-    const allMaterials = await db.getMaterialsByStatus('processed')
-    
-    // Фильтруем по источникам если указаны
-    let materials = allMaterials
-    if (sources) {
-      const sourcesList = sources.split(',')
-      materials = allMaterials.filter(m => 
-        sourcesList.some(source => m.feedName === source || m.source === source)
+    const materials = await db.getMaterialsByStatus('processed')
+
+    const sources = Array.from(
+      new Set(
+        materials
+          .map((material) => material.feedName || material.source)
+          .filter((source): source is string => Boolean(source))
       )
-    }
-    
-    // Получаем уникальные источники для фильтра
-    const uniqueSources = Array.from(
-      new Set(allMaterials.map(m => m.feedName || m.source).filter(Boolean))
-    ).sort()
-    
+    ).sort((a, b) => a.localeCompare(b, 'ru'))
+
+    const regions = Array.from(
+      new Map<number, string>(
+        materials
+          .filter((material) => material.country)
+          .map((material) => [material.country!.id, material.country!.name])
+      ).entries()
+    )
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+
+    const categories = Array.from(
+      new Map<number, string>(
+        materials.flatMap((material) => material.categories ?? []).map((category) => [
+          category.id,
+          category.name,
+        ])
+      ).entries()
+    )
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+
     return NextResponse.json({
       success: true,
       data: materials,
-      sources: uniqueSources,
+      filters: {
+        sources,
+        regions,
+        categories,
+      },
     })
   } catch (error) {
     console.error('Error fetching public materials:', error)
