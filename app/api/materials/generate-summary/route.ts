@@ -1,4 +1,4 @@
-import type { City, Country } from '@/lib/types'
+import type { Category, City, Country } from '@/lib/types'
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import Anthropic from '@anthropic-ai/sdk'
@@ -35,18 +35,20 @@ const DEFAULT_ANALYSIS_PROMPT = `Ты - аналитик новостного к
    - purely_opinion (авторская колонка, редакционная статья)
 
 5. TAXONOMY (классификация):
-   - Определи страны и города, связанные с материалом
+   - Определи подходящие категории, а также страны и города, связанные с материалом
 
 Ответ должен быть на русском языке в формате JSON с полями: meta_description, summary, sentiment, content_type, taxonomy.`
 
 const DEFAULT_TAXONOMY_SYSTEM_PROMPT =
-  'Ты — редактор аналитического портала. Определи страну и города статьи так, чтобы они помогали редакции быстро рубрицировать материалы.'
+  'Ты — редактор аналитического портала. Определи подходящие категории, а также страну и города статьи так, чтобы они помогали редакции быстро рубрицировать материалы.'
 const DEFAULT_TAXONOMY_FORMAT_PROMPT =
-  'Верни ответ строго в формате JSON:\n{\n  "summary": "краткое резюме на русском",\n  "taxonomy": {\n    "country": "Название страны или null",\n    "city": "Название города или null"\n  }\n}\nНе добавляй пояснений. Если не удалось определить значение, используй null.'
+  'Верни ответ строго в формате JSON:\n{\n  "summary": "краткое резюме на русском",\n  "taxonomy": {\n    "categories": ["Название категории"],\n    "country": "Название страны или null",\n    "city": "Название города или null"\n  }\n}\nНе добавляй пояснений. Если не удалось определить значение, используй null.'
 
-type PromptType = 'country' | 'city'
+type PromptType = 'category' | 'country' | 'city'
 
 const DEFAULT_TAXONOMY_PROMPTS: Record<PromptType, string> = {
+  category:
+    'Выбери одну или несколько категорий, которые наилучшим образом описывают материал. Если подходящей категории нет, предложи новую аккуратную формулировку.',
   country: 'Выбери страну, если материал ясно связан с конкретным государством.',
   city: 'Укажи город, если он явно присутствует в материале и важен для контекста.',
 }
@@ -204,7 +206,8 @@ const extractJsonFromText = (text: string): string | null => {
 }
 
 const buildTaxonomyContext = (
-  countries: Array<Country & { cities: City[] }>
+  countries: Array<Country & { cities: City[] }>,
+  categories: Category[]
 ) => {
   const countryLines =
     countries.length > 0
@@ -216,8 +219,14 @@ const buildTaxonomyContext = (
         })
       : ['(пока нет сохранённых стран)']
 
+  const categoryLine =
+    categories.length > 0
+      ? categories.map((category) => category.name).join(', ')
+      : '(пока нет категорий)'
+
   return [
     'Страны и города: ' + countryLines.join(' | '),
+    'Категории: ' + categoryLine,
     'Если подходящего значения нет, предложи новое аккуратное название.',
   ].join('\n')
 }
@@ -244,6 +253,8 @@ export async function POST(request: Request) {
     const taxonomySystemPrompt = settings['taxonomy_system_prompt']
     const taxonomyFormatPrompt = settings['taxonomy_format_prompt']
     const taxonomyPrompts: Record<PromptType, string> = {
+      category:
+        settings['taxonomy_prompt_category'] ?? DEFAULT_TAXONOMY_PROMPTS.category,
       country:
         settings['taxonomy_prompt_country'] ?? DEFAULT_TAXONOMY_PROMPTS.country,
       city:
@@ -291,38 +302,47 @@ export async function POST(request: Request) {
     }
     
     const taxonomyData = (await db.getTaxonomy()) as {
+      categories: Category[]
       countries: Array<Country & { cities: City[] }>
     }
 
     const systemPromptSections = [
       analysisPrompt,
       taxonomySystemPrompt || DEFAULT_TAXONOMY_SYSTEM_PROMPT,
+      `Правила для категорий: ${taxonomyPrompts.category}`,
       `Правила для стран: ${taxonomyPrompts.country}`,
       `Правила для городов: ${taxonomyPrompts.city}`,
       'Вот доступные справочники для ориентира:',
-      buildTaxonomyContext(taxonomyData.countries),
+      buildTaxonomyContext(taxonomyData.countries, taxonomyData.categories),
     ]
 
     const systemPrompt = systemPromptSections.filter(Boolean).join('\n\n')
 
-    const userPrompt = `Проанализируй статью и предоставь результат.
-
-СТАТЬЯ:
-${contentToAnalyze}
-
-Верни ответ строго в формате JSON:
-{
+    const userPromptSections = [
+      'Проанализируй статью и предоставь результат.',
+      'СТАТЬЯ:',
+      contentToAnalyze,
+      'Верни ответ строго в формате JSON:',
+      `{
   "meta_description": "150-160 символов для SEO, без ссылок на статью",
   "summary": "3-5 предложений с ключевыми фактами",
   "sentiment": "positive | neutral | negative",
   "content_type": "purely_factual | mostly_factual | balanced | mostly_opinion | purely_opinion",
   "taxonomy": {
+    "categories": ["Название категории"],
     "country": "Название страны или null",
     "city": "Название города или null"
   }
-}
+}`,
+    ]
 
-Только чистый JSON без markdown, без дополнительного текста и комментариев.`
+    if (taxonomyFormatPrompt) {
+      userPromptSections.push('Дополнительные требования к формату:', taxonomyFormatPrompt)
+    }
+
+    userPromptSections.push('Только чистый JSON без markdown, без дополнительного текста и комментариев.')
+
+    const userPrompt = userPromptSections.join('\n\n')
 
     const geminiPrompt = [systemPrompt, userPrompt].filter(Boolean).join('\n\n')
 
@@ -373,6 +393,7 @@ ${contentToAnalyze}
       sentiment?: 'positive' | 'neutral' | 'negative'
       content_type?: 'purely_factual' | 'mostly_factual' | 'balanced' | 'mostly_opinion' | 'purely_opinion'
       taxonomy?: {
+        categories?: string[] | null
         country?: string | null
         city?: string | null
         themes?: unknown
@@ -431,10 +452,15 @@ ${contentToAnalyze}
     }
 
     const taxonomyResult = (parsedResponse.taxonomy ?? {}) as {
+      categories?: string[] | null
       country?: string | null
       city?: string | null
     }
 
+    const hasCategories = Object.prototype.hasOwnProperty.call(
+      taxonomyResult,
+      'categories'
+    )
     const hasCountry = Object.prototype.hasOwnProperty.call(
       taxonomyResult,
       'country'
@@ -540,14 +566,53 @@ ${contentToAnalyze}
     }
 
     const taxonomyUpdatePayload: {
+      categoryIds?: number[]
       countryIds?: number[]
       cityIds?: number[]
     } = {}
 
+    const categoryIds: number[] = []
     const countryIds: number[] = []
     const cityIds: number[] = []
+    let shouldUpdateCategories = hasCategories
     let shouldUpdateCountries = hasCountry
     let shouldUpdateCities = hasCity
+
+    const categoryByName = new Map<string, Category>()
+    taxonomyData.categories.forEach((category) => {
+      categoryByName.set(normalizeName(category.name), category)
+    })
+
+    const ensureCategory = async (name: string) => {
+      const key = normalizeName(name)
+      if (key.length === 0) return null
+      const existing = categoryByName.get(key)
+      if (existing) return existing
+
+      const created = await db.createTaxonomyItem('category', name)
+      categoryByName.set(key, created)
+      taxonomyData.categories.push(created)
+      return created
+    }
+
+    if (hasCategories) {
+      const categoryNames = Array.isArray(taxonomyResult.categories)
+        ? taxonomyResult.categories
+        : []
+
+      for (const rawName of categoryNames) {
+        const categoryName = sanitizeString(rawName)
+        if (!categoryName) continue
+        try {
+          const category = await ensureCategory(categoryName)
+          if (category && !categoryIds.includes(category.id)) {
+            categoryIds.push(category.id)
+          }
+        } catch (error) {
+          console.error('Failed to ensure category:', categoryName, error)
+        }
+      }
+    }
 
     if (hasCountry) {
       if (countryName) {
@@ -584,6 +649,10 @@ ${contentToAnalyze}
       }
     }
 
+    if (shouldUpdateCategories) {
+      taxonomyUpdatePayload.categoryIds = categoryIds
+    }
+
     if (shouldUpdateCountries) {
       taxonomyUpdatePayload.countryIds = countryIds
     }
@@ -602,6 +671,7 @@ ${contentToAnalyze}
     })
 
     const shouldUpdateTaxonomy =
+      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'categoryIds') ||
       Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'countryIds') ||
       Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'cityIds')
 

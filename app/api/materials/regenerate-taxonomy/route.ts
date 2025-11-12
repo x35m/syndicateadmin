@@ -1,4 +1,4 @@
-import type { City, Country } from '@/lib/types'
+import type { Category, City, Country } from '@/lib/types'
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import Anthropic from '@anthropic-ai/sdk'
@@ -8,6 +8,7 @@ import { jsonrepair } from 'jsonrepair'
 const MAX_CONTENT_LENGTH = 15000
 
 type AIProvider = 'gemini' | 'claude'
+type PromptType = 'category' | 'country' | 'city'
 
 async function callGemini(apiKey: string, model: string, prompt: string) {
   const requestBody = {
@@ -156,7 +157,8 @@ const extractJsonFromText = (text: string): string | null => {
 }
 
 const buildTaxonomyContext = (
-  countries: Array<Country & { cities: City[] }>
+  countries: Array<Country & { cities: City[] }>,
+  categories: Category[]
 ) => {
   const countryLines =
     countries.length > 0
@@ -168,22 +170,31 @@ const buildTaxonomyContext = (
         })
       : ['(пока нет сохранённых стран)']
 
+  const categoryLine =
+    categories.length > 0
+      ? categories.map((category) => category.name).join(', ')
+      : '(пока нет категорий)'
+
   return [
     'Страны и города: ' + countryLines.join(' | '),
+    'Категории: ' + categoryLine,
     'Если подходящего значения нет, предложи новое аккуратное название.',
   ].join('\n')
 }
 
 const DEFAULT_TAXONOMY_FORMAT_PROMPT = `Верни только JSON объект со следующей структурой:
 {
+  "categories": ["название категории"],
   "country": "название страны" или null,
   "city": "название города" или null
 }`
 
 const DEFAULT_TAXONOMY_SYSTEM_PROMPT =
-  'Ты — редактор аналитического портала. Определи страну и города статьи так, чтобы они помогали редакции быстро рубрицировать материалы.'
+  'Ты — редактор аналитического портала. Определи подходящие категории, а также страну и города, чтобы редакция могла быстро рубрицировать материалы.'
 
-const DEFAULT_TAXONOMY_PROMPTS = {
+const DEFAULT_TAXONOMY_PROMPTS: Record<PromptType, string> = {
+  category:
+    'Выбери одну или несколько категорий, которые наилучшим образом описывают материал. Если подходящей категории нет, предложи новую аккуратную формулировку.',
   country: 'Выбери страну, если материал ясно связан с конкретным государством.',
   city: 'Укажи город, если он явно присутствует в материале и важен для контекста.',
 }
@@ -226,10 +237,12 @@ export async function POST(request: Request) {
     }
 
     const taxonomy = await db.getTaxonomy()
-    const taxonomyContext = buildTaxonomyContext(taxonomy.countries)
+    const taxonomyContext = buildTaxonomyContext(taxonomy.countries, taxonomy.categories)
 
     const taxonomySystemPrompt =
       settings['taxonomy_system_prompt'] || DEFAULT_TAXONOMY_SYSTEM_PROMPT
+    const categoryPrompt =
+      settings['taxonomy_prompt_category'] || DEFAULT_TAXONOMY_PROMPTS.category
     const countryPrompt =
       settings['taxonomy_prompt_country'] || DEFAULT_TAXONOMY_PROMPTS.country
     const cityPrompt =
@@ -246,7 +259,8 @@ export async function POST(request: Request) {
 
     const systemPromptSections = [
       taxonomySystemPrompt,
-      `ПРАВИЛА ДЛЯ КАЖДОГО ТИПА:`,
+      'ПРАВИЛА ДЛЯ КАЖДОГО ТИПА:',
+      `Категория: ${categoryPrompt}`,
       `Страна: ${countryPrompt}`,
       `Город: ${cityPrompt}`,
       'КОНТЕКСТ ДОСТУПНЫХ ЗНАЧЕНИЙ:',
@@ -256,7 +270,7 @@ export async function POST(request: Request) {
     const systemPrompt = systemPromptSections.filter(Boolean).join('\n\n')
 
     const userPrompt = [
-      'Определи страну и города, связанные со статьёй.',
+      'Определи подходящие категории, а также страну и города, связанные со статьёй.',
       '',
       'СТАТЬЯ:',
       `Заголовок: ${material.title}`,
@@ -280,11 +294,13 @@ export async function POST(request: Request) {
     }
 
     let taxonomyData: {
+      categories?: string[] | null
       country?: string | null
       city?: string | null
     }
     try {
       taxonomyData = JSON.parse(jsonText) as {
+        categories?: string[] | null
         country?: string | null
         city?: string | null
       }
@@ -292,6 +308,7 @@ export async function POST(request: Request) {
       let secondError: unknown = null
       try {
         taxonomyData = JSON5.parse(jsonText) as {
+          categories?: string[] | null
           country?: string | null
           city?: string | null
         }
@@ -300,6 +317,7 @@ export async function POST(request: Request) {
         try {
           const repaired = jsonrepair(jsonText)
           taxonomyData = JSON.parse(repaired) as {
+            categories?: string[] | null
             country?: string | null
             city?: string | null
           }
@@ -319,9 +337,16 @@ export async function POST(request: Request) {
       }
     }
 
+    const categoryNames = Array.isArray(taxonomyData.categories)
+      ? taxonomyData.categories
+      : []
     const countryName = sanitizeString(taxonomyData.country)
     const cityName = sanitizeString(taxonomyData.city)
 
+    const hasCategories = Object.prototype.hasOwnProperty.call(
+      taxonomyData,
+      'categories'
+    )
     const hasCountry = Object.prototype.hasOwnProperty.call(
       taxonomyData,
       'country'
@@ -332,10 +357,34 @@ export async function POST(request: Request) {
     )
 
     const taxonomyUpdatePayload: {
+      categoryIds?: number[]
       countryIds?: number[]
       cityIds?: number[]
     } = {}
 
+    const categoryByName = new Map<string, Category>()
+    for (const category of taxonomy.categories) {
+      categoryByName.set(normalizeName(category.name), category)
+    }
+
+    const ensureCategory = async (name: string) => {
+      const key = normalizeName(name)
+      if (key.length === 0) return null
+      const existing = categoryByName.get(key)
+      if (existing) return existing
+
+      try {
+        const created = await db.createTaxonomyItem('category', name)
+        categoryByName.set(key, created)
+        taxonomy.categories.push(created)
+        return created
+      } catch (error) {
+        console.error('Failed to create category:', name, error)
+        return null
+      }
+    }
+
+    const categoryIds: number[] = []
     const countryByName = new Map<string, Country & { cities: City[] }>()
     for (const country of taxonomy.countries) {
       countryByName.set(normalizeName(country.name), {
@@ -346,8 +395,21 @@ export async function POST(request: Request) {
 
     const countryIds: number[] = []
     const cityIds: number[] = []
+    let shouldUpdateCategories = hasCategories
     let shouldUpdateCountries = hasCountry
     let shouldUpdateCities = hasCity
+
+    if (hasCategories) {
+      for (const rawName of categoryNames) {
+        const categoryName = sanitizeString(rawName)
+        if (!categoryName) continue
+
+        const category = await ensureCategory(categoryName)
+        if (category && !categoryIds.includes(category.id)) {
+          categoryIds.push(category.id)
+        }
+      }
+    }
 
     const ensureCountry = async (
       name: string
@@ -482,6 +544,10 @@ export async function POST(request: Request) {
       }
     }
 
+    if (shouldUpdateCategories) {
+      taxonomyUpdatePayload.categoryIds = categoryIds
+    }
+
     if (shouldUpdateCountries) {
       taxonomyUpdatePayload.countryIds = countryIds
     }
@@ -491,6 +557,7 @@ export async function POST(request: Request) {
     }
 
     const shouldUpdateTaxonomy =
+      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'categoryIds') ||
       Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'countryIds') ||
       Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'cityIds')
 
