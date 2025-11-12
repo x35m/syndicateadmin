@@ -97,20 +97,33 @@ async function callGemini(apiKey: string, model: string, prompt: string) {
   )
 }
 
-const DEFAULT_CLAUDE_MODEL = 'claude-3-5-sonnet-20240620'
+const CLAUDE_MODEL_PREFERENCE = [
+  'claude-3-5-sonnet-20240620',
+  'claude-3-haiku-20240307',
+]
 
 async function callClaude(apiKey: string, model: string, prompt: string) {
   const anthropic = new Anthropic({
     apiKey: apiKey,
   })
 
-  const tryCall = async (
-    modelToUse: string,
-    persistFallback: boolean
-  ): Promise<string> => {
+  const requestedModel = model || CLAUDE_MODEL_PREFERENCE[0]
+  const tried = new Set<string>()
+  const candidates = [
+    requestedModel,
+    ...CLAUDE_MODEL_PREFERENCE,
+  ].filter((candidate) => {
+    if (tried.has(candidate)) return false
+    tried.add(candidate)
+    return true
+  })
+
+  let lastError: Error | null = null
+
+  for (const candidate of candidates) {
     try {
       const message = await anthropic.messages.create({
-        model: modelToUse,
+        model: candidate,
         max_tokens: 4096,
         messages: [
           {
@@ -128,6 +141,14 @@ async function callClaude(apiKey: string, model: string, prompt: string) {
         .replace(/```\n?/g, '')
         .trim()
 
+      if (candidate !== requestedModel) {
+        try {
+          await db.setSetting('claude_model', candidate)
+        } catch (persistError) {
+          console.warn('Не удалось сохранить новую модель Claude:', persistError)
+        }
+      }
+
       return cleanText
     } catch (error: any) {
       const errorMessage = error?.error?.message || error?.message || 'Unknown error'
@@ -140,27 +161,19 @@ async function callClaude(apiKey: string, model: string, prompt: string) {
         messageLower.includes('not found') ||
         messageLower.includes('model:')
 
-      if (isModelNotFound && modelToUse !== DEFAULT_CLAUDE_MODEL) {
-        console.warn(
-          `Claude model "${modelToUse}" недоступна. Переключаемся на "${DEFAULT_CLAUDE_MODEL}".`
-        )
-        if (persistFallback) {
-          try {
-            await db.setSetting('claude_model', DEFAULT_CLAUDE_MODEL)
-          } catch (persistError) {
-            console.warn('Не удалось сохранить модель Claude по умолчанию:', persistError)
-          }
-        }
-        return tryCall(DEFAULT_CLAUDE_MODEL, false)
+      if (isModelNotFound) {
+        console.warn(`Claude model "${candidate}" недоступна. Пробуем альтернативу.`)
+        lastError = new Error(`Модель ${candidate} недоступна`)
+        continue
       }
 
       throw new Error(`Claude API error: ${errorType} - ${errorMessage}`)
     }
   }
 
-  const modelToUse = model || DEFAULT_CLAUDE_MODEL
-  const shouldPersistFallback = modelToUse !== DEFAULT_CLAUDE_MODEL
-  return tryCall(modelToUse, shouldPersistFallback)
+  throw new Error(
+    lastError?.message || 'Claude API error: нет доступных моделей для выполнения запроса'
+  )
 }
 
 const normalizeName = (value?: string | null) =>
