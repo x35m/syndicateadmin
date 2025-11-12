@@ -433,7 +433,6 @@ export class DatabaseService {
     countryIds?: number[]
     cityIds?: number[]
     feedNames?: string[]
-    onlyWithSummary?: boolean
   }): Promise<{ materials: Material[]; total: number; page: number; pageSize: number; totalPages: number }> {
     const page = options.page || 1
     const pageSize = options.pageSize || 50
@@ -503,11 +502,6 @@ export class DatabaseService {
       conditions.push(`(f.title = ANY($${paramIndex}::text[]) OR m.source = ANY($${paramIndex}::text[]))`)
       params.push(options.feedNames)
       paramIndex++
-    }
-
-    // Summary filter
-    if (options.onlyWithSummary) {
-      conditions.push(`m.summary IS NOT NULL AND m.summary != ''`)
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''

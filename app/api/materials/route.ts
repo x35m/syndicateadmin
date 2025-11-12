@@ -12,10 +12,9 @@ export async function GET(request: NextRequest) {
     const countryIds = searchParams.get('countryIds')?.split(',').map(Number).filter(Boolean)
     const cityIds = searchParams.get('cityIds')?.split(',').map(Number).filter(Boolean)
     const feedNames = searchParams.get('feedNames')?.split(',').filter(Boolean)
-    const onlyWithSummary = searchParams.get('onlyWithSummary') === 'true'
 
     // If pagination params are provided, use paginated endpoint
-    if (page !== undefined || pageSize !== undefined || search || categoryIds || countryIds || cityIds || feedNames || onlyWithSummary) {
+    if (page !== undefined || pageSize !== undefined || search || categoryIds || countryIds || cityIds || feedNames) {
       const result = await db.getMaterialsPaginated({
         page,
         pageSize,
@@ -25,7 +24,6 @@ export async function GET(request: NextRequest) {
         countryIds,
         cityIds,
         feedNames,
-        onlyWithSummary,
       })
 
       // Get stats for the current filter
