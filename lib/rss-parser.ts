@@ -373,6 +373,8 @@ export class RSSParser {
         link: item.link || item.guid,
         source: feedTitle || feedUrl,
         status: 'new' as const,
+        processed: false,
+        published: false,
     })
     }
 
