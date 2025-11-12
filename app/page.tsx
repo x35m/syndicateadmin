@@ -708,8 +708,6 @@ export default function PublicMaterialsPage() {
           </DialogHeader>
  
           {(selectedMaterial?.categories?.length ||
-            selectedMaterial?.themes?.length ||
-            selectedMaterial?.tags?.length ||
             selectedMaterial?.countries?.length ||
             selectedMaterial?.cities?.length) && (
             <div className="mt-4 space-y-3 text-sm">
@@ -726,39 +724,6 @@ export default function PublicMaterialsPage() {
                         className="text-xs font-medium"
                       >
                       {category.name}
-                    </Badge>
-                  ))}
-                </div>
-              )}
-
-              {selectedMaterial?.themes &&
-                selectedMaterial.themes.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium text-foreground">
-                      Темы:
-                    </span>
-                  {selectedMaterial.themes.map((theme) => (
-                      <Badge
-                        key={`theme-${theme.id}`}
-                        variant="secondary"
-                        className="text-xs font-medium"
-                      >
-                      {theme.name}
-                    </Badge>
-                  ))}
-                </div>
-              )}
-
-              {selectedMaterial?.tags && selectedMaterial.tags.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium text-foreground">Теги:</span>
-                  {selectedMaterial.tags.map((tag) => (
-                    <Badge
-                      key={`tag-${tag.id}`}
-                      variant="outline"
-                      className="text-xs font-medium"
-                    >
-                      {tag.name}
                     </Badge>
                   ))}
                 </div>

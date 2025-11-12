@@ -5,8 +5,9 @@ export const dynamic = 'force-dynamic'
 
 export async function GET() {
   try {
-    const materials = await db.getMaterialsByStatus('processed')
-
+    const publishedMaterials = await db.getMaterialsByStatus('published')
+    const materials = publishedMaterials.filter((material) => material.processed)
+    
     const sources = Array.from(
       new Set(
         materials
@@ -35,7 +36,7 @@ export async function GET() {
     )
       .map(([id, name]) => ({ id, name }))
       .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
-
+    
     return NextResponse.json({
       success: true,
       data: materials,

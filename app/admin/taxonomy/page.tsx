@@ -33,7 +33,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
-import { Alliance, Category, City, Country, Tag, Theme } from '@/lib/types'
+import { Category, City, Country } from '@/lib/types'
 import {
   MoreHorizontal,
   PencilLine,
@@ -42,10 +42,10 @@ import {
   Trash2,
 } from 'lucide-react'
 
-type SimpleKind = 'categories' | 'themes' | 'tags' | 'alliances'
+type SimpleKind = 'categories'
 type TaxonomyKind = SimpleKind | 'countries' | 'cities'
-type ApiType = 'category' | 'theme' | 'tag' | 'alliance' | 'country' | 'city'
-type PromptType = 'category' | 'theme' | 'tag' | 'alliance' | 'country' | 'city'
+type ApiType = 'category' | 'country' | 'city'
+type PromptType = 'category' | 'country' | 'city'
 
 interface CountryWithRelations extends Country {
   cities: City[]
@@ -57,34 +57,22 @@ interface CityRow extends City {
 
 interface TaxonomyState {
   categories: Category[]
-  themes: Theme[]
-  tags: Tag[]
-  alliances: Alliance[]
   countries: CountryWithRelations[]
 }
 
 const defaultState: TaxonomyState = {
   categories: [],
-  themes: [],
-  tags: [],
-  alliances: [],
   countries: [],
 }
 
 const TAB_CONFIG: Record<TaxonomyKind, { label: string; type: ApiType }> = {
   categories: { label: 'Категории', type: 'category' },
-  themes: { label: 'Темы', type: 'theme' },
-  tags: { label: 'Теги', type: 'tag' },
-  alliances: { label: 'Политические союзы и блоки', type: 'alliance' },
   countries: { label: 'Страны', type: 'country' },
   cities: { label: 'Города', type: 'city' },
 }
 
 const PROMPT_LABELS: Record<PromptType, string> = {
   category: 'Промпт категорий',
-  theme: 'Промпт тем',
-  tag: 'Промпт тегов',
-  alliance: 'Промпт политических союзов и блоков',
   country: 'Промпт стран',
   city: 'Промпт городов',
 }
@@ -113,9 +101,6 @@ export default function TaxonomyPage() {
   const [promptModal, setPromptModal] = useState<PromptModalState>(null)
   const [prompts, setPrompts] = useState<Record<PromptType, string>>({
     category: '',
-    theme: '',
-    tag: '',
-    alliance: '',
     country: '',
     city: '',
   })
@@ -123,9 +108,6 @@ export default function TaxonomyPage() {
   const [savingPrompt, setSavingPrompt] = useState(false)
   const [search, setSearch] = useState<Record<TaxonomyKind, string>>({
     categories: '',
-    themes: '',
-    tags: '',
-    alliances: '',
     countries: '',
     cities: '',
   })
@@ -133,9 +115,6 @@ export default function TaxonomyPage() {
     Record<TaxonomyKind, Set<number>>
   >({
     categories: new Set(),
-    themes: new Set(),
-    tags: new Set(),
-    alliances: new Set(),
     countries: new Set(),
     cities: new Set(),
   })
@@ -158,13 +137,10 @@ export default function TaxonomyPage() {
         toast.error(result.error || 'Не удалось получить данные таксономии')
         return
       }
-      setTaxonomy({
-        categories: result.categories ?? [],
-        themes: result.themes ?? [],
-        tags: result.tags ?? [],
-        alliances: result.alliances ?? [],
-        countries: (result.countries ?? []) as CountryWithRelations[],
-      })
+        setTaxonomy({
+          categories: result.categories ?? [],
+          countries: (result.countries ?? []) as CountryWithRelations[],
+        })
     } catch (error) {
       console.error('Error fetching taxonomy:', error)
       toast.error('Не удалось получить данные таксономии')
@@ -267,20 +243,20 @@ export default function TaxonomyPage() {
     try {
       setSavingItem(true)
       if (mode === 'create') {
-        const response = await fetch('/api/taxonomy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type,
+      const response = await fetch('/api/taxonomy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type,
             name: trimmedName,
             countryId: type === 'city' ? countryId : undefined,
-          }),
-        })
-        const result = await response.json()
-        if (!result.success) {
-          toast.error(result.error || 'Не удалось создать элемент')
-          return
-        }
+        }),
+      })
+      const result = await response.json()
+      if (!result.success) {
+        toast.error(result.error || 'Не удалось создать элемент')
+        return
+      }
         toast.success('Элемент создан')
       } else if (id !== undefined) {
         const response = await fetch('/api/taxonomy', {
@@ -425,7 +401,7 @@ export default function TaxonomyPage() {
     const selection = selectedIds[tab]
     const type = TAB_CONFIG[tab].type
 
-    return (
+  return (
       <Card>
         <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -538,8 +514,8 @@ export default function TaxonomyPage() {
               </TableBody>
             </Table>
           )}
-        </CardContent>
-      </Card>
+                </CardContent>
+              </Card>
     )
   }
 
@@ -550,27 +526,27 @@ export default function TaxonomyPage() {
     const allIds = items.map((country) => country.id)
 
     return (
-      <Card>
+              <Card>
         <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle>Страны</CardTitle>
             <p className="text-sm text-muted-foreground mt-2">
               Управляйте списком стран и связанных городов.
             </p>
-          </div>
+                  </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="flex items-center gap-2">
-              <Input
+                    <Input
                 placeholder="Поиск страны..."
                 value={search.countries}
                 onChange={(event) =>
                   setSearch((prev) => ({ ...prev, countries: event.target.value }))
                 }
                 className="h-9 w-full sm:w-56"
-              />
-              <Button
+                    />
+                    <Button
                 variant="outline"
-                size="sm"
+                      size="sm"
                 onClick={() => openPromptDialog('countries')}
                 disabled={loadingPrompts}
               >
@@ -581,8 +557,8 @@ export default function TaxonomyPage() {
             <Button size="sm" onClick={() => openCreateModal('countries')}>
               <Plus className="mr-2 h-4 w-4" />
               Добавить страну
-            </Button>
-          </div>
+                    </Button>
+                  </div>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -668,8 +644,8 @@ export default function TaxonomyPage() {
               </TableBody>
             </Table>
           )}
-        </CardContent>
-      </Card>
+                </CardContent>
+              </Card>
     )
   }
 
@@ -680,27 +656,27 @@ export default function TaxonomyPage() {
     const allIds = items.map((city) => city.id)
 
     return (
-      <Card>
+              <Card>
         <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle>Города</CardTitle>
             <p className="text-sm text-muted-foreground mt-2">
               Управляйте списком городов и их принадлежностью к странам.
             </p>
-          </div>
+                  </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="flex items-center gap-2">
-              <Input
+                    <Input
                 placeholder="Поиск города или страны..."
                 value={search.cities}
                 onChange={(event) =>
                   setSearch((prev) => ({ ...prev, cities: event.target.value }))
                 }
                 className="h-9 w-full sm:w-64"
-              />
-              <Button
+                    />
+                    <Button
                 variant="outline"
-                size="sm"
+                      size="sm"
                 onClick={() => openPromptDialog('cities')}
                 disabled={loadingPrompts}
               >
@@ -711,20 +687,20 @@ export default function TaxonomyPage() {
             <Button size="sm" onClick={() => openCreateModal('cities')}>
               <Plus className="mr-2 h-4 w-4" />
               Добавить город
-            </Button>
-          </div>
-        </CardHeader>
+                    </Button>
+                  </div>
+                </CardHeader>
         <CardContent>
           {loading ? (
             <div className="space-y-2">
               {Array.from({ length: 6 }).map((_, index) => (
                 <Skeleton key={index} className="h-10 w-full" />
-              ))}
-            </div>
+                              ))}
+                            </div>
           ) : items.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">
               Города не найдены.
-            </div>
+                        </div>
           ) : (
             <Table>
               <TableHeader>
@@ -815,7 +791,7 @@ export default function TaxonomyPage() {
               Управляйте таксономиями материалов, настраивайте системные промпты для
               нейросети и выполняйте массовые операции над элементами.
             </p>
-          </div>
+                  </div>
 
           <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TaxonomyKind)}>
             <TabsList className="flex-wrap">
@@ -829,14 +805,11 @@ export default function TaxonomyPage() {
             </TabsList>
 
             <TabsContent value="categories">{renderSimpleTable('categories')}</TabsContent>
-            <TabsContent value="themes">{renderSimpleTable('themes')}</TabsContent>
-            <TabsContent value="tags">{renderSimpleTable('tags')}</TabsContent>
-            <TabsContent value="alliances">{renderSimpleTable('alliances')}</TabsContent>
             <TabsContent value="countries">{renderCountriesTable()}</TabsContent>
             <TabsContent value="cities">{renderCitiesTable()}</TabsContent>
           </Tabs>
-        </div>
-      </div>
+                      </div>
+                    </div>
 
       {/* Item Modal */}
       <Dialog open={modal !== null} onOpenChange={(open) => !open && setModal(null)}>
@@ -871,11 +844,11 @@ export default function TaxonomyPage() {
                 />
               </div>
               {modal.type === 'city' && (
-                <div className="space-y-2">
+                    <div className="space-y-2">
                   <Label htmlFor="taxonomy-country">Страна</Label>
-                  <select
+                      <select
                     id="taxonomy-country"
-                    className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                        className="w-full rounded-md border bg-background px-3 py-2 text-sm"
                     value={modal.countryId ?? ''}
                     onChange={(event) =>
                       setModal((prev) =>
@@ -889,14 +862,14 @@ export default function TaxonomyPage() {
                           : prev
                       )
                     }
-                  >
-                    <option value="">Выберите страну</option>
-                    {taxonomy.countries.map((country) => (
-                      <option key={country.id} value={country.id}>
-                        {country.name}
-                      </option>
-                    ))}
-                  </select>
+                      >
+                        <option value="">Выберите страну</option>
+                        {taxonomy.countries.map((country) => (
+                          <option key={country.id} value={country.id}>
+                            {country.name}
+                          </option>
+                        ))}
+                      </select>
                 </div>
               )}
             </div>
@@ -966,18 +939,18 @@ export default function TaxonomyPage() {
                   <Trash2 className="mr-2 h-4 w-4" />
                   Удалить
                 </Button>
-                <Button
+                        <Button
                   variant="ghost"
-                  size="sm"
+                          size="sm"
                   onClick={() => resetSelection(activeTab)}
-                >
+                        >
                   Сбросить
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+                        </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
     </>
   )
 }

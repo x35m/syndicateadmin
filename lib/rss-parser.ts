@@ -328,7 +328,7 @@ export class RSSParser {
       if (!thumbnail && item.enclosure && item.enclosure.type.startsWith('image/')) {
         thumbnail = item.enclosure.url
       }
-
+      
       const shouldExtractFullArticle =
         (!fullContent || this.stripHtml(fullContent).length < 400) && Boolean(item.link)
 
@@ -358,7 +358,7 @@ export class RSSParser {
           `<img src="${thumbnail}" alt="${item.title}" style="max-width: 100%; height: auto;" />` +
           fullContent
       }
-
+      
       const textContent = this.stripHtml(fullContent || baseHtmlContent)
 
       materials.push({
@@ -373,7 +373,7 @@ export class RSSParser {
         link: item.link || item.guid,
         source: feedTitle || feedUrl,
         status: 'new' as const,
-      })
+    })
     }
 
     return materials

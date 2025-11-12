@@ -1,4 +1,4 @@
-import type { Alliance, Category, City, Country, Tag, Theme } from '@/lib/types'
+import type { City, Country } from '@/lib/types'
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import Anthropic from '@anthropic-ai/sdk'
@@ -132,26 +132,6 @@ const normalizeName = (value?: string | null) =>
 const sanitizeString = (value: unknown) =>
   typeof value === 'string' ? value.trim() : ''
 
-const sanitizeStringArray = (value: unknown): string[] => {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  const unique = new Set<string>()
-  const result: string[] = []
-  for (const item of value) {
-    const trimmed = sanitizeString(item)
-    if (trimmed.length > 0) {
-      const key = normalizeName(trimmed)
-      if (!unique.has(key)) {
-        unique.add(key)
-        result.push(trimmed)
-      }
-    }
-  }
-  return result
-}
-
 const extractJsonFromText = (text: string): string | null => {
   if (!text) return null
   
@@ -168,10 +148,7 @@ const extractJsonFromText = (text: string): string | null => {
 }
 
 const buildTaxonomyContext = (
-  countries: Array<Country & { cities: City[] }>,
-  themes: Theme[],
-  tags: Tag[],
-  alliances: Alliance[]
+  countries: Array<Country & { cities: City[] }>
 ) => {
   const countryLines =
     countries.length > 0
@@ -183,43 +160,19 @@ const buildTaxonomyContext = (
         })
       : ['(пока нет сохранённых стран)']
 
-  const themeLine =
-    themes.length > 0
-      ? themes.map((theme) => theme.name).join(', ')
-      : '(пока нет тем)'
-
-  const tagLine =
-    tags.length > 0 ? tags.map((tag) => tag.name).join(', ') : '(пока нет тегов)'
-
-  const allianceLine =
-    alliances.length > 0
-      ? alliances.map((alliance) => alliance.name).join(', ')
-      : '(пока нет союзов)'
-
   return [
     'Страны и города: ' + countryLines.join(' | '),
-    'Темы: ' + themeLine,
-    'Теги: ' + tagLine,
-    'Политические союзы и блоки: ' + allianceLine,
     'Если подходящего значения нет, предложи новое аккуратное название.',
   ].join('\n')
 }
 
 const DEFAULT_TAXONOMY_FORMAT_PROMPT = `Верни только JSON объект со следующей структурой:
 {
-  "category": ["название категории"],
-  "theme": ["название темы"],
-  "tags": ["тег1", "тег2", ...],
   "country": "название страны" или null,
-  "city": "название города" или null,
-  "alliances": ["название союза1", "название союза2", ...]
+  "city": "название города" или null
 }`
 
 const DEFAULT_TAXONOMY_PROMPTS = {
-  category: 'Определи основную категорию материала по его содержанию и тематике.',
-  theme: 'Выбери тему, которая наиболее точно отражает основной сюжет или проблематику материала.',
-  tags: 'Подбери 3-7 релевантных тегов, которые описывают ключевые аспекты материала.',
-  alliance: 'Определи международные или региональные союзы, блоки и объединения, напрямую связанные с сюжетом материала.',
   country: 'Выбери страну, если материал ясно связан с конкретным государством.',
   city: 'Укажи город, если он явно присутствует в материале и важен для контекста.',
 }
@@ -262,20 +215,8 @@ export async function POST(request: Request) {
     }
 
     const taxonomy = await db.getTaxonomy()
-    const taxonomyContext = buildTaxonomyContext(
-      taxonomy.countries,
-      taxonomy.themes,
-      taxonomy.tags,
-      taxonomy.alliances
-    )
+    const taxonomyContext = buildTaxonomyContext(taxonomy.countries)
 
-    const categoryPrompt =
-      settings['taxonomy_prompt_category'] || DEFAULT_TAXONOMY_PROMPTS.category
-    const themePrompt =
-      settings['taxonomy_prompt_theme'] || DEFAULT_TAXONOMY_PROMPTS.theme
-    const tagPrompt = settings['taxonomy_prompt_tag'] || DEFAULT_TAXONOMY_PROMPTS.tags
-    const alliancePrompt =
-      settings['taxonomy_prompt_alliance'] || DEFAULT_TAXONOMY_PROMPTS.alliance
     const countryPrompt =
       settings['taxonomy_prompt_country'] || DEFAULT_TAXONOMY_PROMPTS.country
     const cityPrompt =
@@ -297,10 +238,6 @@ export async function POST(request: Request) {
       taxonomyContext,
       '',
       'ПРАВИЛА ДЛЯ КАЖДОГО ТИПА:',
-      `Категория: ${categoryPrompt}`,
-      `Тема: ${themePrompt}`,
-      `Теги: ${tagPrompt}`,
-      `Политические союзы: ${alliancePrompt}`,
       `Страна: ${countryPrompt}`,
       `Город: ${cityPrompt}`,
       '',
@@ -325,32 +262,10 @@ export async function POST(request: Request) {
     }
 
     const taxonomyData = JSON.parse(jsonText) as {
-      category?: string | string[]
-      theme?: string | string[]
-      tags?: string | string[]
       country?: string | null
       city?: string | null
-      alliances?: string | string[]
     }
 
-    const categoryNames = sanitizeStringArray(
-      Array.isArray(taxonomyData.category)
-        ? taxonomyData.category
-        : taxonomyData.category
-        ? [taxonomyData.category]
-        : []
-    )
-
-    const themeNames = sanitizeStringArray(
-      Array.isArray(taxonomyData.theme)
-        ? taxonomyData.theme
-        : taxonomyData.theme
-        ? [taxonomyData.theme]
-        : []
-    )
-
-    const tagNames = sanitizeStringArray(taxonomyData.tags || [])
-    const allianceNames = sanitizeStringArray(taxonomyData.alliances || [])
     const countryName = sanitizeString(taxonomyData.country)
     const cityName = sanitizeString(taxonomyData.city)
 
@@ -364,120 +279,38 @@ export async function POST(request: Request) {
     )
 
     const taxonomyUpdatePayload: {
-      categoryIds?: number[]
-      themeIds?: number[]
-      tagIds?: number[]
-      allianceIds?: number[]
       countryIds?: number[]
       cityIds?: number[]
     } = {}
 
-    const categoryByName = new Map<string, Category>()
-    for (const cat of taxonomy.categories) {
-      categoryByName.set(normalizeName(cat.name), cat)
-    }
-
-    const themeByName = new Map<string, Theme>()
-    for (const theme of taxonomy.themes) {
-      themeByName.set(normalizeName(theme.name), theme)
-    }
-
-    const tagByName = new Map<string, Tag>()
-    for (const tag of taxonomy.tags) {
-      tagByName.set(normalizeName(tag.name), tag)
-    }
-
-    const allianceByName = new Map<string, Alliance>()
-    for (const alliance of taxonomy.alliances) {
-      allianceByName.set(normalizeName(alliance.name), alliance)
-    }
-
     const countryByName = new Map<string, Country & { cities: City[] }>()
     for (const country of taxonomy.countries) {
-      countryByName.set(normalizeName(country.name), country)
+      countryByName.set(normalizeName(country.name), {
+        ...country,
+        cities: country.cities ?? [],
+      })
     }
 
-    const ensureCategory = async (name: string): Promise<Category | null> => {
-      const normalized = normalizeName(name)
-      const existing = categoryByName.get(normalized)
-      if (existing) return existing
-
-      try {
-        const created = await db.createTaxonomyItem('category', name)
-        if (created) {
-          categoryByName.set(normalized, created)
-          return created
-        }
-      } catch (error) {
-        console.error('Failed to create category:', name, error)
-      }
-      return null
-    }
-
-    const ensureTheme = async (name: string): Promise<Theme | null> => {
-      const normalized = normalizeName(name)
-      const existing = themeByName.get(normalized)
-      if (existing) return existing
-
-      try {
-        const created = await db.createTaxonomyItem('theme', name)
-        if (created) {
-          themeByName.set(normalized, created)
-          return created
-        }
-      } catch (error) {
-        console.error('Failed to create theme:', name, error)
-      }
-      return null
-    }
-
-    const ensureTag = async (name: string): Promise<Tag | null> => {
-      const normalized = normalizeName(name)
-      const existing = tagByName.get(normalized)
-      if (existing) return existing
-
-      try {
-        const created = await db.createTaxonomyItem('tag', name)
-        if (created) {
-          tagByName.set(normalized, created)
-          return created
-        }
-      } catch (error) {
-        console.error('Failed to create tag:', name, error)
-      }
-      return null
-    }
-
-    const ensureAlliance = async (name: string): Promise<Alliance | null> => {
-      const normalized = normalizeName(name)
-      const existing = allianceByName.get(normalized)
-      if (existing) return existing
-
-      try {
-        const created = await db.createTaxonomyItem('alliance', name)
-        if (created) {
-          allianceByName.set(normalized, created)
-          return created
-        }
-      } catch (error) {
-        console.error('Failed to create alliance:', name, error)
-      }
-      return null
-    }
+    const countryIds: number[] = []
+    const cityIds: number[] = []
+    let shouldUpdateCountries = hasCountry
+    let shouldUpdateCities = hasCity
 
     const ensureCountry = async (
       name: string
     ): Promise<(Country & { cities: City[] }) | null> => {
-      const normalized = normalizeName(name)
-      const existing = countryByName.get(normalized)
+      const key = normalizeName(name)
+      if (key.length === 0) return null
+      const existing = countryByName.get(key)
       if (existing) return existing
 
       try {
         const created = await db.createTaxonomyItem('country', name)
         if (created) {
-          const countryWithCities = { ...created, cities: [] }
-          countryByName.set(normalized, countryWithCities)
-          return countryWithCities
+          const enriched = { ...created, cities: [] as City[] }
+          countryByName.set(key, enriched)
+          taxonomy.countries.push(enriched)
+          return enriched
         }
       } catch (error) {
         console.error('Failed to create country:', name, error)
@@ -485,87 +318,66 @@ export async function POST(request: Request) {
       return null
     }
 
-    const ensureCity = async (
-      name: string,
-      countryName: string
-    ): Promise<City | null> => {
-      const country = await ensureCountry(countryName)
-      if (!country) return null
+    const cityByName = new Map<string, Array<City>>()
+    for (const country of taxonomy.countries) {
+      for (const city of country.cities ?? []) {
+        const key = normalizeName(city.name)
+        if (!cityByName.has(key)) {
+          cityByName.set(key, [])
+        }
+        cityByName.get(key)!.push(city)
+      }
+    }
 
-      const normalized = normalizeName(name)
-      const existingCity = country.cities?.find(
-        (c) => normalizeName(c.name) === normalized
+    const ensureCity = async (name: string, countryIdHint?: number | null) => {
+      const key = normalizeName(name)
+      if (key.length === 0) return null
+      const candidates = cityByName.get(key) ?? []
+
+      if (candidates.length > 0) {
+        const preferred =
+          candidates.find((item) =>
+            countryIdHint ? item.countryId === countryIdHint : true
+          ) ?? candidates[0]
+
+        if (
+          countryIdHint &&
+          preferred.countryId !== countryIdHint &&
+          !countryIds.includes(preferred.countryId)
+        ) {
+          countryIds.push(preferred.countryId)
+          shouldUpdateCountries = true
+        }
+
+        return preferred
+      }
+
+      if (!countryIdHint) {
+        console.warn(
+          `City "${name}" cannot be created without a country reference. Skipping.`
+        )
+        return null
+      }
+
+      const created = await db.createTaxonomyItem('city', name, {
+        countryId: countryIdHint,
+      })
+
+      const enriched = created as City
+      if (!cityByName.has(key)) {
+        cityByName.set(key, [])
+      }
+      cityByName.get(key)!.push(enriched)
+
+      const parentCountry = taxonomy.countries.find(
+        (country) => country.id === countryIdHint
       )
-      if (existingCity) return existingCity
-
-      try {
-        const created = await db.createTaxonomyItem('city', name, {
-          countryId: country.id,
-        })
-        if (created) {
-          country.cities.push(created)
-          return created
-        }
-      } catch (error) {
-        console.error('Failed to create city:', name, error)
+      if (parentCountry) {
+        parentCountry.cities = [...(parentCountry.cities ?? []), enriched]
       }
-      return null
-    }
 
-    if (
-      Array.isArray(taxonomyData.category) ||
-      taxonomyData.category !== undefined
-    ) {
-      const ids: number[] = []
-      for (const name of categoryNames) {
-        const category = await ensureCategory(name)
-        if (category) {
-          ids.push(category.id)
-        }
-      }
-      taxonomyUpdatePayload.categoryIds = ids
+      return enriched
     }
-
-    if (
-      Array.isArray(taxonomyData.theme) ||
-      taxonomyData.theme !== undefined
-    ) {
-      const ids: number[] = []
-      for (const name of themeNames) {
-        const theme = await ensureTheme(name)
-        if (theme) {
-          ids.push(theme.id)
-        }
-      }
-      taxonomyUpdatePayload.themeIds = ids
-    }
-
-    if (taxonomyData.tags !== undefined) {
-      const ids: number[] = []
-      for (const name of tagNames) {
-        const tag = await ensureTag(name)
-        if (tag) {
-          ids.push(tag.id)
-        }
-      }
-      taxonomyUpdatePayload.tagIds = ids
-    }
-
-    if (taxonomyData.alliances !== undefined) {
-      const ids: number[] = []
-      for (const name of allianceNames) {
-        const alliance = await ensureAlliance(name)
-        if (alliance) {
-          ids.push(alliance.id)
-        }
-      }
-      taxonomyUpdatePayload.allianceIds = ids
-    }
-
-    const countryIds: number[] = []
-    const cityIds: number[] = []
-    let shouldUpdateCountries = hasCountry
-    let shouldUpdateCities = hasCity
 
     if (hasCountry) {
       if (countryName) {
@@ -581,7 +393,8 @@ export async function POST(request: Request) {
         let city: City | null = null
 
         if (countryName) {
-          city = await ensureCity(cityName, countryName)
+          const countryIdHint = countryIds[0] ?? null
+          city = await ensureCity(cityName, countryIdHint)
         } else {
           const normalizedCity = normalizeName(cityName)
           for (const country of taxonomy.countries) {
@@ -626,11 +439,7 @@ export async function POST(request: Request) {
 
     const shouldUpdateTaxonomy =
       Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'countryIds') ||
-      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'cityIds') ||
-      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'themeIds') ||
-      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'tagIds') ||
-      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'categoryIds') ||
-      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'allianceIds')
+      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'cityIds')
 
     if (shouldUpdateTaxonomy) {
       try {

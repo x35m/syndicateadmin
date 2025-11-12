@@ -11,6 +11,7 @@ export async function GET() {
         total: parseInt(stats.total) || 0,
         new: parseInt(stats.new_count) || 0,
         processed: parseInt(stats.processed_count) || 0,
+        published: parseInt(stats.published_count) || 0,
         archived: parseInt(stats.archived_count) || 0,
         lastFetch: stats.last_fetch,
       },

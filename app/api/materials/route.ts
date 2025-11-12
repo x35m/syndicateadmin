@@ -9,25 +9,19 @@ export async function GET(request: NextRequest) {
     const pageSize = searchParams.get('pageSize') ? parseInt(searchParams.get('pageSize')!) : undefined
     const search = searchParams.get('search') || undefined
     const categoryIds = searchParams.get('categoryIds')?.split(',').map(Number).filter(Boolean)
-    const themeIds = searchParams.get('themeIds')?.split(',').map(Number).filter(Boolean)
-    const tagIds = searchParams.get('tagIds')?.split(',').map(Number).filter(Boolean)
-    const allianceIds = searchParams.get('allianceIds')?.split(',').map(Number).filter(Boolean)
     const countryIds = searchParams.get('countryIds')?.split(',').map(Number).filter(Boolean)
     const cityIds = searchParams.get('cityIds')?.split(',').map(Number).filter(Boolean)
     const feedNames = searchParams.get('feedNames')?.split(',').filter(Boolean)
     const onlyWithSummary = searchParams.get('onlyWithSummary') === 'true'
 
     // If pagination params are provided, use paginated endpoint
-    if (page !== undefined || pageSize !== undefined || search || categoryIds || themeIds || tagIds || allianceIds || countryIds || cityIds || feedNames || onlyWithSummary) {
+    if (page !== undefined || pageSize !== undefined || search || categoryIds || countryIds || cityIds || feedNames || onlyWithSummary) {
       const result = await db.getMaterialsPaginated({
         page,
         pageSize,
         status: status || undefined,
         search,
         categoryIds,
-        themeIds,
-        tagIds,
-        allianceIds,
         countryIds,
         cityIds,
         feedNames,
@@ -90,16 +84,39 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json()
-    const { id, status } = body
+    const { id, status, processed, published } = body
 
-    if (!id || !status) {
+    if (!id) {
       return NextResponse.json(
-        { success: false, error: 'Missing id or status' },
+        { success: false, error: 'Missing id' },
         { status: 400 }
       )
     }
 
-    await db.updateMaterialStatus(id, status)
+    const updates: {
+      status?: string
+      processed?: boolean
+      published?: boolean
+    } = {}
+
+    if (typeof status === 'string' && status.trim().length > 0) {
+      updates.status = status.trim()
+    }
+    if (typeof processed === 'boolean') {
+      updates.processed = processed
+    }
+    if (typeof published === 'boolean') {
+      updates.published = published
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'No updates were provided' },
+        { status: 400 }
+      )
+    }
+
+    await db.updateMaterialAttributes(id, updates)
 
     return NextResponse.json({
       success: true,

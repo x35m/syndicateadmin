@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, RefreshCw, Trash2, Edit2, Check, X, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { Plus, RefreshCw, Trash2, Edit2, Check, X, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -63,6 +63,7 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
   const [editingTitle, setEditingTitle] = useState('')
   const [selectedFeedIds, setSelectedFeedIds] = useState<Set<string>>(new Set())
   const [pendingAction, setPendingAction] = useState<BulkFeedAction>(null)
+  const [bulkActionLoading, setBulkActionLoading] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
 
@@ -141,6 +142,7 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
     const action = pendingAction
     const idsArray = Array.from(selectedFeedIds)
 
+    setBulkActionLoading(true)
     try {
       if (action === 'update') {
         for (const id of idsArray) {
@@ -162,6 +164,7 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
       console.error('Error performing bulk action:', error)
       toast.error('Ошибка при выполнении действия')
     } finally {
+      setBulkActionLoading(false)
       setPendingAction(null)
     }
   }
@@ -729,9 +732,17 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
             <AlertDialogCancel>Отмена</AlertDialogCancel>
             <AlertDialogAction
               onClick={executeBulkAction}
-              className={dialogContent?.variant === 'destructive' ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : ''}
+              disabled={bulkActionLoading}
+              className={`${dialogContent?.variant === 'destructive' ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : ''} flex items-center`}
             >
-              {dialogContent?.actionText}
+              {bulkActionLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {pendingAction === 'delete' ? 'Удаление...' : 'Выполнение...'}
+                </>
+              ) : (
+                dialogContent?.actionText
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

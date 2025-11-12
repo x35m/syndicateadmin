@@ -64,7 +64,7 @@ export default function SettingsPage() {
    - purely_opinion (авторская колонка, редакционная статья)
 
 5. TAXONOMY (классификация):
-   - Определи страны, города, темы, теги и политические союзы, связанные с материалом
+   - Определи страны и города, связанные с материалом
 
 Ответ должен быть на русском языке в формате JSON с полями: meta_description, summary, sentiment, content_type, taxonomy.`
   const defaultSummaryPrompt =
@@ -200,15 +200,15 @@ export default function SettingsPage() {
                 <>
                   <div className="space-y-2">
                     <Label htmlFor="geminiApiKey">API ключ Gemini</Label>
-                    <Input
+                <Input
                       id="geminiApiKey"
-                      type="password"
-                      placeholder="AIzaSy..."
-                      value={settings.geminiApiKey}
-                      onChange={(e) =>
-                        setSettings({ ...settings, geminiApiKey: e.target.value })
-                      }
-                    />
+                  type="password"
+                  placeholder="AIzaSy..."
+                  value={settings.geminiApiKey}
+                  onChange={(e) =>
+                    setSettings({ ...settings, geminiApiKey: e.target.value })
+                  }
+                />
                     <p className="text-xs text-muted-foreground">
                       API ключ можно получить на{' '}
                       <a
@@ -294,7 +294,7 @@ export default function SettingsPage() {
                     <p className="text-xs text-muted-foreground">
                       Haiku - ~$0.35-0.40/день для 400 статей. Sonnet дороже, но качественнее.
                     </p>
-                  </div>
+              </div>
                 </>
               )}
 

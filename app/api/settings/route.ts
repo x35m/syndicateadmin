@@ -43,15 +43,15 @@ export async function GET() {
    - purely_opinion (авторская колонка, редакционная статья)
 
 5. TAXONOMY (классификация):
-   - Определи страны, города, темы, теги и политические союзы, связанные с материалом
+   - Определи страны и города, связанные с материалом
 
 Ответ должен быть на русском языке в формате JSON с полями: meta_description, summary, sentiment, content_type, taxonomy.`
     const defaultSummaryPrompt =
       'Создай краткое саммари следующей статьи. Выдели основные моменты и ключевые идеи. Ответ должен быть на русском языке, лаконичным и информативным (3-5 предложений).'
     const defaultTaxonomySystemPrompt =
-      'Ты — редактор аналитического портала. Определи страну, город, темы и теги статьи так, чтобы они помогали редакции быстро рубрицировать материалы.'
+      'Ты — редактор аналитического портала. Определи страну и города статьи так, чтобы они помогали редакции быстро рубрицировать материалы.'
     const defaultTaxonomyFormatPrompt =
-      'Верни ответ строго в формате JSON:\n{\n  "summary": "краткое резюме на русском",\n  "taxonomy": {\n    "country": "Название страны или null",\n    "city": "Название города или null",\n    "themes": ["Список тем"],\n    "tags": ["Список тегов"]\n  }\n}\nНе добавляй пояснений. Если не удалось определить значение, используй null или пустой массив.'
+      'Верни ответ строго в формате JSON:\n{\n  "summary": "краткое резюме на русском",\n  "taxonomy": {\n    "country": "Название страны или null",\n    "city": "Название города или null"\n  }\n}\nНе добавляй пояснений. Если не удалось определить значение, используй null.'
 
     return NextResponse.json({
       success: true,
@@ -98,7 +98,7 @@ export async function POST(request: Request) {
     if (analysisPrompt) {
       await db.setSetting('analysis_prompt', analysisPrompt)
     }
-
+    
     if (summaryPrompt) {
       await db.setSetting('summary_prompt', summaryPrompt)
     }

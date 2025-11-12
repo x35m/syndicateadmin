@@ -9,17 +9,11 @@ export async function POST(request: Request) {
     const {
       materialId,
       categoryIds,
-      themeIds,
-      tagIds,
-      allianceIds,
       countryIds,
       cityIds,
     } = body as {
       materialId?: string
       categoryIds?: number[] | string[]
-      themeIds?: number[] | string[]
-      tagIds?: number[] | string[]
-      allianceIds?: number[] | string[]
       countryIds?: number[] | string[]
       cityIds?: number[] | string[]
     }
@@ -42,9 +36,6 @@ export async function POST(request: Request) {
 
     const normalized = {
       categoryIds: parseIds(categoryIds, 'категорий'),
-      themeIds: parseIds(themeIds, 'тем'),
-      tagIds: parseIds(tagIds, 'тегов'),
-      allianceIds: parseIds(allianceIds, 'политических союзов'),
       countryIds: parseIds(countryIds, 'стран'),
       cityIds: parseIds(cityIds, 'городов'),
     }
