@@ -307,13 +307,22 @@ export async function POST(request: Request) {
     const countryName = sanitizeString(taxonomyData.country)
     const cityName = sanitizeString(taxonomyData.city)
 
+    const hasCountry = Object.prototype.hasOwnProperty.call(
+      taxonomyData,
+      'country'
+    )
+    const hasCity = Object.prototype.hasOwnProperty.call(
+      taxonomyData,
+      'city'
+    )
+
     const taxonomyUpdatePayload: {
       categoryIds?: number[]
       themeIds?: number[]
       tagIds?: number[]
       allianceIds?: number[]
-      countryId?: number | null
-      cityId?: number | null
+      countryIds?: number[]
+      cityIds?: number[]
     } = {}
 
     const categoryByName = new Map<string, Category>()
@@ -347,7 +356,7 @@ export async function POST(request: Request) {
       if (existing) return existing
 
       try {
-        const created = await db.createTaxonomyItem('category', { name })
+        const created = await db.createTaxonomyItem('category', name)
         if (created) {
           categoryByName.set(normalized, created)
           return created
@@ -364,7 +373,7 @@ export async function POST(request: Request) {
       if (existing) return existing
 
       try {
-        const created = await db.createTaxonomyItem('theme', { name })
+        const created = await db.createTaxonomyItem('theme', name)
         if (created) {
           themeByName.set(normalized, created)
           return created
@@ -381,7 +390,7 @@ export async function POST(request: Request) {
       if (existing) return existing
 
       try {
-        const created = await db.createTaxonomyItem('tag', { name })
+        const created = await db.createTaxonomyItem('tag', name)
         if (created) {
           tagByName.set(normalized, created)
           return created
@@ -398,7 +407,7 @@ export async function POST(request: Request) {
       if (existing) return existing
 
       try {
-        const created = await db.createTaxonomyItem('alliance', { name })
+        const created = await db.createTaxonomyItem('alliance', name)
         if (created) {
           allianceByName.set(normalized, created)
           return created
@@ -417,7 +426,7 @@ export async function POST(request: Request) {
       if (existing) return existing
 
       try {
-        const created = await db.createTaxonomyItem('country', { name })
+        const created = await db.createTaxonomyItem('country', name)
         if (created) {
           const countryWithCities = { ...created, cities: [] }
           countryByName.set(normalized, countryWithCities)
@@ -443,8 +452,7 @@ export async function POST(request: Request) {
       if (existingCity) return existingCity
 
       try {
-        const created = await db.createTaxonomyItem('city', {
-          name,
+        const created = await db.createTaxonomyItem('city', name, {
           countryId: country.id,
         })
         if (created) {
@@ -457,7 +465,10 @@ export async function POST(request: Request) {
       return null
     }
 
-    if (categoryNames.length > 0) {
+    if (
+      Array.isArray(taxonomyData.category) ||
+      taxonomyData.category !== undefined
+    ) {
       const ids: number[] = []
       for (const name of categoryNames) {
         const category = await ensureCategory(name)
@@ -468,7 +479,10 @@ export async function POST(request: Request) {
       taxonomyUpdatePayload.categoryIds = ids
     }
 
-    if (themeNames.length > 0) {
+    if (
+      Array.isArray(taxonomyData.theme) ||
+      taxonomyData.theme !== undefined
+    ) {
       const ids: number[] = []
       for (const name of themeNames) {
         const theme = await ensureTheme(name)
@@ -479,7 +493,7 @@ export async function POST(request: Request) {
       taxonomyUpdatePayload.themeIds = ids
     }
 
-    if (tagNames.length > 0) {
+    if (taxonomyData.tags !== undefined) {
       const ids: number[] = []
       for (const name of tagNames) {
         const tag = await ensureTag(name)
@@ -490,26 +504,7 @@ export async function POST(request: Request) {
       taxonomyUpdatePayload.tagIds = ids
     }
 
-    if (countryName) {
-      const country = await ensureCountry(countryName)
-      if (country) {
-        taxonomyUpdatePayload.countryId = country.id
-
-        if (cityName) {
-          const city = await ensureCity(cityName, countryName)
-          if (city) {
-            taxonomyUpdatePayload.cityId = city.id
-          }
-        } else {
-          taxonomyUpdatePayload.cityId = null
-        }
-      }
-    } else {
-      taxonomyUpdatePayload.countryId = null
-      taxonomyUpdatePayload.cityId = null
-    }
-
-    if (allianceNames.length > 0) {
+    if (taxonomyData.alliances !== undefined) {
       const ids: number[] = []
       for (const name of allianceNames) {
         const alliance = await ensureAlliance(name)
@@ -520,9 +515,71 @@ export async function POST(request: Request) {
       taxonomyUpdatePayload.allianceIds = ids
     }
 
+    const countryIds: number[] = []
+    const cityIds: number[] = []
+    let shouldUpdateCountries = hasCountry
+    let shouldUpdateCities = hasCity
+
+    if (hasCountry) {
+      if (countryName) {
+        const country = await ensureCountry(countryName)
+        if (country) {
+          countryIds.push(country.id)
+        }
+      }
+    }
+
+    if (hasCity) {
+      if (cityName) {
+        let city: City | null = null
+
+        if (countryName) {
+          city = await ensureCity(cityName, countryName)
+        } else {
+          const normalizedCity = normalizeName(cityName)
+          for (const country of taxonomy.countries) {
+            const existingCity = (country.cities ?? []).find(
+              (c) => normalizeName(c.name) === normalizedCity
+            )
+            if (existingCity) {
+              city = existingCity
+              if (!countryIds.includes(country.id)) {
+                countryIds.push(country.id)
+              }
+              break
+            }
+          }
+
+          if (!city) {
+            console.warn(
+              `City "${cityName}" cannot be resolved without country reference. Skipping.`
+            )
+          }
+        }
+
+        if (city) {
+          if (!cityIds.includes(city.id)) {
+            cityIds.push(city.id)
+          }
+          if (!countryIds.includes(city.countryId)) {
+            countryIds.push(city.countryId)
+          }
+          shouldUpdateCountries = true
+        }
+      }
+    }
+
+    if (shouldUpdateCountries) {
+      taxonomyUpdatePayload.countryIds = countryIds
+    }
+
+    if (shouldUpdateCities) {
+      taxonomyUpdatePayload.cityIds = cityIds
+    }
+
     const shouldUpdateTaxonomy =
-      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'countryId') ||
-      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'cityId') ||
+      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'countryIds') ||
+      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'cityIds') ||
       Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'themeIds') ||
       Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'tagIds') ||
       Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'categoryIds') ||

@@ -488,9 +488,10 @@ export async function POST(request: Request) {
         if (
           countryIdHint &&
           preferred.countryId !== countryIdHint &&
-          taxonomyUpdatePayload.countryId !== preferred.countryId
+          !countryIds.includes(preferred.countryId)
         ) {
-          taxonomyUpdatePayload.countryId = preferred.countryId
+          countryIds.push(preferred.countryId)
+          shouldUpdateCountries = true
         }
 
         return preferred
@@ -567,24 +568,28 @@ export async function POST(request: Request) {
     }
 
     const taxonomyUpdatePayload: {
-      countryId?: number | null
-      cityId?: number | null
+      countryIds?: number[]
+      cityIds?: number[]
       themeIds?: number[]
       tagIds?: number[]
       allianceIds?: number[]
     } = {}
 
+    const countryIds: number[] = []
+    const cityIds: number[] = []
+    let shouldUpdateCountries = hasCountry
+    let shouldUpdateCities = hasCity
+
     if (hasCountry) {
       if (countryName) {
         try {
           const country = await ensureCountry(countryName)
-          taxonomyUpdatePayload.countryId = country?.id ?? null
+          if (country) {
+            countryIds.push(country.id)
+          }
         } catch (error) {
           console.error('Failed to ensure country:', countryName, error)
-          taxonomyUpdatePayload.countryId = null
         }
-      } else {
-        taxonomyUpdatePayload.countryId = null
       }
     }
 
@@ -593,27 +598,29 @@ export async function POST(request: Request) {
         try {
           const city = await ensureCity(
             cityName,
-            taxonomyUpdatePayload.countryId
+            countryIds[0] ?? null
           )
           if (city) {
-            taxonomyUpdatePayload.cityId = city.id
-
-            if (
-              taxonomyUpdatePayload.countryId === undefined ||
-              taxonomyUpdatePayload.countryId === null
-            ) {
-              taxonomyUpdatePayload.countryId = city.countryId
+            if (!cityIds.includes(city.id)) {
+              cityIds.push(city.id)
             }
-          } else {
-            taxonomyUpdatePayload.cityId = null
+            if (!countryIds.includes(city.countryId)) {
+              countryIds.push(city.countryId)
+            }
+            shouldUpdateCountries = true
           }
         } catch (error) {
           console.error('Failed to ensure city:', cityName, error)
-          taxonomyUpdatePayload.cityId = null
         }
-      } else {
-        taxonomyUpdatePayload.cityId = null
       }
+    }
+
+    if (shouldUpdateCountries) {
+      taxonomyUpdatePayload.countryIds = countryIds
+    }
+
+    if (shouldUpdateCities) {
+      taxonomyUpdatePayload.cityIds = cityIds
     }
 
     if (Array.isArray(taxonomyResult.themes)) {
@@ -661,22 +668,6 @@ export async function POST(request: Request) {
       taxonomyUpdatePayload.allianceIds = ids
     }
 
-    const summary = sanitizeString(parsedResponse.summary)
-    const metaDescription = sanitizeString(parsedResponse.meta_description)
-    const sentiment = parsedResponse.sentiment as 'positive' | 'neutral' | 'negative' | undefined
-    const contentType = parsedResponse.content_type as 'purely_factual' | 'mostly_factual' | 'balanced' | 'mostly_opinion' | 'purely_opinion' | undefined
-
-    if (!summary) {
-      console.error('Summary is missing in parsed response:', parsedResponse)
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Нейросеть не вернула саммари. Уточните промпт или повторите попытку.',
-        },
-        { status: 500 }
-      )
-    }
-
     // Сохраняем все поля, даже если они пустые (но не undefined)
     await db.updateMaterialSummary(materialId, {
       summary,
@@ -687,8 +678,8 @@ export async function POST(request: Request) {
     })
 
     const shouldUpdateTaxonomy =
-      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'countryId') ||
-      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'cityId') ||
+      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'countryIds') ||
+      Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'cityIds') ||
       Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'themeIds') ||
       Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'tagIds') ||
       Object.prototype.hasOwnProperty.call(taxonomyUpdatePayload, 'allianceIds')

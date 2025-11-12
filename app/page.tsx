@@ -110,10 +110,11 @@ export default function PublicMaterialsPage() {
           return false
         }
 
-        const countryId = material.country?.id ?? null
+        const materialCountryIds =
+          material.countries?.map((country) => country.id) ?? []
         if (
           filters.regions.length > 0 &&
-          (!countryId || !filters.regions.includes(countryId))
+          !filters.regions.some((id) => materialCountryIds.includes(id))
         ) {
           return false
         }
@@ -187,9 +188,11 @@ export default function PublicMaterialsPage() {
 
     const counts = new Map<number, number>()
     base.forEach((material) => {
-      const id = material.country?.id
-      if (!id) return
-      counts.set(id, (counts.get(id) ?? 0) + 1)
+      const ids = material.countries?.map((country) => country.id) ?? []
+      const uniqueIds = new Set(ids)
+      uniqueIds.forEach((id) => {
+        counts.set(id, (counts.get(id) ?? 0) + 1)
+      })
     })
 
     const options: CountedOption<number>[] = regions.map((region) => ({
@@ -599,11 +602,11 @@ export default function PublicMaterialsPage() {
                                   {material.feedName || material.source}
                                 </Badge>
                               )}
-                              {material.country && (
-                                <Badge variant="secondary">
-                                  {material.country.name}
+                              {material.countries?.map((country) => (
+                                <Badge key={`country-${material.id}-${country.id}`} variant="secondary">
+                                  {country.name}
                                 </Badge>
-                              )}
+                              ))}
                             </div>
                             <h3 className="text-xl font-semibold leading-tight">
                               {material.title}
@@ -707,8 +710,8 @@ export default function PublicMaterialsPage() {
           {(selectedMaterial?.categories?.length ||
             selectedMaterial?.themes?.length ||
             selectedMaterial?.tags?.length ||
-            selectedMaterial?.country ||
-            selectedMaterial?.city) && (
+            selectedMaterial?.countries?.length ||
+            selectedMaterial?.cities?.length) && (
             <div className="mt-4 space-y-3 text-sm">
               {selectedMaterial?.categories &&
                 selectedMaterial.categories.length > 0 && (
@@ -761,11 +764,28 @@ export default function PublicMaterialsPage() {
                 </div>
               )}
 
-              {(selectedMaterial?.country || selectedMaterial?.city) && (
-                <div className="text-muted-foreground">
-                  <span className="font-medium text-foreground">Регион:</span>{' '}
-                  {selectedMaterial?.country?.name || '—'}
-                  {selectedMaterial?.city ? `, ${selectedMaterial.city.name}` : ''}
+              {(selectedMaterial?.countries?.length ||
+                selectedMaterial?.cities?.length) && (
+                <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
+                  <span className="font-medium text-foreground">Регионы:</span>
+                  {selectedMaterial?.countries?.map((country) => (
+                    <Badge
+                      key={`dialog-country-${country.id}`}
+                      variant="outline"
+                      className="text-xs font-medium"
+                    >
+                      {country.name}
+                    </Badge>
+                  ))}
+                  {selectedMaterial?.cities?.map((city) => (
+                    <Badge
+                      key={`dialog-city-${city.id}`}
+                      variant="secondary"
+                      className="text-xs font-medium"
+                    >
+                      {city.name}
+                    </Badge>
+                  ))}
                 </div>
               )}
             </div>

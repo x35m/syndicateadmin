@@ -18,8 +18,8 @@ export async function GET() {
     const regions = Array.from(
       new Map<number, string>(
         materials
-          .filter((material) => material.country)
-          .map((material) => [material.country!.id, material.country!.name])
+          .flatMap((material) => material.countries ?? [])
+          .map((country) => [country.id, country.name])
       ).entries()
     )
       .map(([id, name]) => ({ id, name }))
