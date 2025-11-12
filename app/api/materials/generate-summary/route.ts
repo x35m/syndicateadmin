@@ -100,7 +100,12 @@ const CLAUDE_MODEL_PREFERENCE = [
   'claude-3-haiku-20240307',
 ]
 
-async function callClaude(apiKey: string, model: string, prompt: string) {
+async function callClaude(
+  apiKey: string,
+  model: string,
+  systemPrompt: string,
+  userPrompt: string
+) {
   const anthropic = new Anthropic({
     apiKey: apiKey,
   })
@@ -123,10 +128,11 @@ async function callClaude(apiKey: string, model: string, prompt: string) {
       const message = await anthropic.messages.create({
         model: candidate,
         max_tokens: 4096,
+        system: systemPrompt || undefined,
         messages: [
           {
             role: 'user',
-            content: prompt,
+            content: userPrompt,
           },
         ],
       })
@@ -288,18 +294,37 @@ export async function POST(request: Request) {
       countries: Array<Country & { cities: City[] }>
     }
 
-    const promptSections = [
+    const systemPromptSections = [
       analysisPrompt,
       taxonomySystemPrompt || DEFAULT_TAXONOMY_SYSTEM_PROMPT,
       `Правила для стран: ${taxonomyPrompts.country}`,
       `Правила для городов: ${taxonomyPrompts.city}`,
       'Вот доступные справочники для ориентира:',
       buildTaxonomyContext(taxonomyData.countries),
-      'Статья:',
-      contentToAnalyze,
     ]
 
-    const prompt = promptSections.filter(Boolean).join('\n\n')
+    const systemPrompt = systemPromptSections.filter(Boolean).join('\n\n')
+
+    const userPrompt = `Проанализируй статью и предоставь результат.
+
+СТАТЬЯ:
+${contentToAnalyze}
+
+Верни ответ строго в формате JSON:
+{
+  "meta_description": "150-160 символов для SEO, без ссылок на статью",
+  "summary": "3-5 предложений с ключевыми фактами",
+  "sentiment": "positive | neutral | negative",
+  "content_type": "purely_factual | mostly_factual | balanced | mostly_opinion | purely_opinion",
+  "taxonomy": {
+    "country": "Название страны или null",
+    "city": "Название города или null"
+  }
+}
+
+Только чистый JSON без markdown, без дополнительного текста и комментариев.`
+
+    const geminiPrompt = [systemPrompt, userPrompt].filter(Boolean).join('\n\n')
 
     console.log(
       `Generating analysis for material ${materialId} using ${aiProvider}. Content length: ${contentToAnalyze.length}`
@@ -308,9 +333,9 @@ export async function POST(request: Request) {
     let textResponse: string
     try {
       if (aiProvider === 'claude') {
-        textResponse = await callClaude(apiKey, claudeModel, prompt)
+        textResponse = await callClaude(apiKey, claudeModel, systemPrompt, userPrompt)
       } else {
-        textResponse = await callGemini(apiKey, geminiModel, prompt)
+        textResponse = await callGemini(apiKey, geminiModel, geminiPrompt)
       }
     } catch (error) {
       console.error(`Error calling ${aiProvider} API:`, error)

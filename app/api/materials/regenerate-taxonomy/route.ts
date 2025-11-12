@@ -54,7 +54,12 @@ const CLAUDE_MODEL_PREFERENCE = [
   'claude-3-haiku-20240307',
 ]
 
-async function callClaude(apiKey: string, model: string, prompt: string) {
+async function callClaude(
+  apiKey: string,
+  model: string,
+  systemPrompt: string,
+  userPrompt: string
+) {
   const anthropic = new Anthropic({
     apiKey: apiKey,
   })
@@ -77,10 +82,11 @@ async function callClaude(apiKey: string, model: string, prompt: string) {
       const message = await anthropic.messages.create({
         model: candidate,
         max_tokens: 4096,
+        system: systemPrompt || undefined,
         messages: [
           {
             role: 'user',
-            content: prompt,
+            content: userPrompt,
           },
         ],
       })
@@ -174,6 +180,9 @@ const DEFAULT_TAXONOMY_FORMAT_PROMPT = `Верни только JSON объек�
   "city": "название города" или null
 }`
 
+const DEFAULT_TAXONOMY_SYSTEM_PROMPT =
+  'Ты — редактор аналитического портала. Определи страну и города статьи так, чтобы они помогали редакции быстро рубрицировать материалы.'
+
 const DEFAULT_TAXONOMY_PROMPTS = {
   country: 'Выбери страну, если материал ясно связан с конкретным государством.',
   city: 'Укажи город, если он явно присутствует в материале и важен для контекста.',
@@ -219,6 +228,8 @@ export async function POST(request: Request) {
     const taxonomy = await db.getTaxonomy()
     const taxonomyContext = buildTaxonomyContext(taxonomy.countries)
 
+    const taxonomySystemPrompt =
+      settings['taxonomy_system_prompt'] || DEFAULT_TAXONOMY_SYSTEM_PROMPT
     const countryPrompt =
       settings['taxonomy_prompt_country'] || DEFAULT_TAXONOMY_PROMPTS.country
     const cityPrompt =
@@ -233,30 +244,35 @@ export async function POST(request: Request) {
         ? articleContent.slice(0, MAX_CONTENT_LENGTH) + '...'
         : articleContent
 
-    const promptSections = [
-      'Проанализируй статью и определи подходящие значения таксономии.',
-      '',
-      'КОНТЕКСТ ДОСТУПНЫХ ЗНАЧЕНИЙ:',
-      taxonomyContext,
-      '',
-      'ПРАВИЛА ДЛЯ КАЖДОГО ТИПА:',
+    const systemPromptSections = [
+      taxonomySystemPrompt,
+      `ПРАВИЛА ДЛЯ КАЖДОГО ТИПА:`,
       `Страна: ${countryPrompt}`,
       `Город: ${cityPrompt}`,
+      'КОНТЕКСТ ДОСТУПНЫХ ЗНАЧЕНИЙ:',
+      taxonomyContext,
+    ]
+
+    const systemPrompt = systemPromptSections.filter(Boolean).join('\n\n')
+
+    const userPrompt = [
+      'Определи страну и города, связанные со статьёй.',
       '',
       'СТАТЬЯ:',
       `Заголовок: ${material.title}`,
       `Содержание: ${truncatedContent}`,
       '',
+      'ФОРМАТ ОТВЕТА:',
       formatPrompt,
       '',
-      'ВАЖНО: Верни только чистый JSON, без markdown разметки и дополнительного текста.',
-    ]
+      'Только чистый JSON без markdown и дополнительного текста.',
+    ].join('\n')
 
-    const fullPrompt = promptSections.join('\n')
+    const geminiPrompt = [systemPrompt, userPrompt].filter(Boolean).join('\n\n')
 
     const aiResponse = await (aiProvider === 'claude'
-      ? callClaude(apiKey, claudeModel, fullPrompt)
-      : callGemini(apiKey, geminiModel, fullPrompt))
+      ? callClaude(apiKey, claudeModel, systemPrompt, userPrompt)
+      : callGemini(apiKey, geminiModel, geminiPrompt))
 
     const jsonText = extractJsonFromText(aiResponse)
     if (!jsonText) {
