@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
           total: parseInt(stats.total || '0'),
           new: parseInt(stats.new_count || '0'),
           processed: parseInt(stats.processed_count || '0'),
+          published: parseInt(stats.published_count || '0'),
           archived: parseInt(stats.archived_count || '0'),
         },
       })
@@ -73,6 +74,7 @@ export async function GET(request: NextRequest) {
         total: parseInt(stats.total || '0'),
         new: parseInt(stats.new_count || '0'),
         processed: parseInt(stats.processed_count || '0'),
+        published: parseInt(stats.published_count || '0'),
         archived: parseInt(stats.archived_count || '0'),
       },
     })

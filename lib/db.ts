@@ -915,6 +915,7 @@ export class DatabaseService {
         COUNT(*) as total,
         COUNT(*) FILTER (WHERE status = 'new') as new_count,
         COUNT(*) FILTER (WHERE status = 'processed') as processed_count,
+        COUNT(*) FILTER (WHERE status = 'published') as published_count,
         COUNT(*) FILTER (WHERE status = 'archived') as archived_count,
         MAX(fetched_at) as last_fetch
       FROM materials

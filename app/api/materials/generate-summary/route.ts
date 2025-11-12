@@ -97,37 +97,70 @@ async function callGemini(apiKey: string, model: string, prompt: string) {
   )
 }
 
+const DEFAULT_CLAUDE_MODEL = 'claude-3-5-sonnet-20240620'
+
 async function callClaude(apiKey: string, model: string, prompt: string) {
   const anthropic = new Anthropic({
     apiKey: apiKey,
   })
 
-  try {
-    const message = await anthropic.messages.create({
-      model: model,
-      max_tokens: 4096,
-      messages: [
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-    })
+  const tryCall = async (
+    modelToUse: string,
+    persistFallback: boolean
+  ): Promise<string> => {
+    try {
+      const message = await anthropic.messages.create({
+        model: modelToUse,
+        max_tokens: 4096,
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+      })
 
-    const responseText = message.content[0].type === 'text' ? message.content[0].text : ''
-    
-    // Очищаем от markdown блоков если они есть
-    const cleanText = responseText
-      .replace(/```json\n?/g, '')
-      .replace(/```\n?/g, '')
-      .trim()
+      const responseText =
+        message.content[0].type === 'text' ? message.content[0].text : ''
 
-    return cleanText
-  } catch (error: any) {
-    const errorMessage = error?.error?.message || error?.message || 'Unknown error'
-    const errorType = error?.error?.type || error?.type || 'unknown'
-    throw new Error(`Claude API error: ${errorType} - ${errorMessage}`)
+      const cleanText = responseText
+        .replace(/```json\n?/g, '')
+        .replace(/```\n?/g, '')
+        .trim()
+
+      return cleanText
+    } catch (error: any) {
+      const errorMessage = error?.error?.message || error?.message || 'Unknown error'
+      const errorType = error?.error?.type || error?.type || 'unknown'
+      const statusCode = error?.status ?? error?.response?.status
+      const messageLower = typeof errorMessage === 'string' ? errorMessage.toLowerCase() : ''
+      const isModelNotFound =
+        errorType === 'not_found_error' ||
+        statusCode === 404 ||
+        messageLower.includes('not found') ||
+        messageLower.includes('model:')
+
+      if (isModelNotFound && modelToUse !== DEFAULT_CLAUDE_MODEL) {
+        console.warn(
+          `Claude model "${modelToUse}" недоступна. Переключаемся на "${DEFAULT_CLAUDE_MODEL}".`
+        )
+        if (persistFallback) {
+          try {
+            await db.setSetting('claude_model', DEFAULT_CLAUDE_MODEL)
+          } catch (persistError) {
+            console.warn('Не удалось сохранить модель Claude по умолчанию:', persistError)
+          }
+        }
+        return tryCall(DEFAULT_CLAUDE_MODEL, false)
+      }
+
+      throw new Error(`Claude API error: ${errorType} - ${errorMessage}`)
+    }
   }
+
+  const modelToUse = model || DEFAULT_CLAUDE_MODEL
+  const shouldPersistFallback = modelToUse !== DEFAULT_CLAUDE_MODEL
+  return tryCall(modelToUse, shouldPersistFallback)
 }
 
 const normalizeName = (value?: string | null) =>

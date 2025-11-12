@@ -7,7 +7,7 @@ export async function GET() {
     const claudeApiKey = await db.getSetting('claude_api_key')
     const aiProvider = await db.getSetting('ai_provider') || 'gemini'
     const geminiModel = await db.getSetting('gemini_model') || 'gemini-2.5-flash'
-    const claudeModel = await db.getSetting('claude_model') || 'claude-3-haiku-20240307'
+    const claudeModel = await db.getSetting('claude_model') || 'claude-3-5-sonnet-20240620'
     const analysisPrompt = await db.getSetting('analysis_prompt')
     const summaryPrompt = await db.getSetting('summary_prompt')
     const taxonomySystemPrompt = await db.getSetting('taxonomy_system_prompt')
@@ -60,7 +60,7 @@ export async function GET() {
         claudeApiKey: claudeApiKey || '',
         aiProvider: aiProvider || 'gemini',
         geminiModel: geminiModel || 'gemini-2.5-flash',
-        claudeModel: claudeModel || 'claude-3-haiku-20240307',
+        claudeModel: claudeModel || 'claude-3-5-sonnet-20240620',
         analysisPrompt: analysisPrompt || defaultAnalysisPrompt,
         summaryPrompt: summaryPrompt || defaultSummaryPrompt,
         taxonomySystemPrompt: taxonomySystemPrompt || defaultTaxonomySystemPrompt,
@@ -92,7 +92,7 @@ export async function POST(request: Request) {
     await db.setSetting('gemini_api_key', geminiApiKey || '')
     await db.setSetting('gemini_model', geminiModel || 'gemini-2.5-flash')
     await db.setSetting('claude_api_key', claudeApiKey || '')
-    await db.setSetting('claude_model', claudeModel || 'claude-3-haiku-20240307')
+    await db.setSetting('claude_model', claudeModel || 'claude-3-5-sonnet-20240620')
     await db.setSetting('ai_provider', aiProvider || 'gemini')
     
     if (analysisPrompt) {

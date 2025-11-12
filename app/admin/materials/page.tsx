@@ -65,6 +65,7 @@ interface MaterialsStats {
   total: number
   new: number
   processed: number
+  published: number
   archived: number
 }
 
@@ -175,7 +176,7 @@ export default function MaterialsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [pendingAction, setPendingAction] = useState<BulkAction>(null)
-  const [stats, setStats] = useState<MaterialsStats>({ total: 0, new: 0, processed: 0, archived: 0 })
+  const [stats, setStats] = useState<MaterialsStats>({ total: 0, new: 0, processed: 0, published: 0, archived: 0 })
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
   const [totalPages, setTotalPages] = useState(1)
@@ -359,15 +360,21 @@ export default function MaterialsPage() {
           }
           
           if (matches && materialFilters.countries.length > 0) {
-            const countryId = newMaterial.country?.id
-            if (!countryId || !materialFilters.countries.includes(countryId)) {
+            const countryIds =
+              Array.isArray(newMaterial.countries)
+                ? newMaterial.countries.map((item: any) => item.id)
+                : []
+            if (!materialFilters.countries.some((id) => countryIds.includes(id))) {
               matches = false
             }
           }
           
           if (matches && materialFilters.cities.length > 0) {
-            const cityId = newMaterial.city?.id
-            if (!cityId || !materialFilters.cities.includes(cityId)) {
+            const cityIds =
+              Array.isArray(newMaterial.cities)
+                ? newMaterial.cities.map((item: any) => item.id)
+                : []
+            if (!materialFilters.cities.some((id) => cityIds.includes(id))) {
               matches = false
             }
           }
@@ -561,7 +568,7 @@ export default function MaterialsPage() {
               method: 'DELETE',
             })
           } else {
-            await handleStatusChange(id, action === 'published' ? 'processed' : 'archived')
+            await handleStatusChange(id, action === 'published' ? 'published' : 'archived')
           }
         }
 
@@ -875,6 +882,8 @@ export default function MaterialsPage() {
         return <Badge variant="default">Новый</Badge>
       case 'processed':
         return <Badge variant="secondary" className="bg-green-500/10 text-green-700 dark:text-green-400">Обработанные</Badge>
+      case 'published':
+        return <Badge variant="secondary" className="bg-blue-500/10 text-blue-700 dark:text-blue-400">Опубликован</Badge>
       case 'archived':
         return <Badge variant="outline">Архив</Badge>
       default:
@@ -966,6 +975,9 @@ export default function MaterialsPage() {
                 </TabsTrigger>
                 <TabsTrigger value="processed">
                   Обработанные {stats.processed > 0 && <span className="ml-1.5 text-xs">({stats.processed})</span>}
+                </TabsTrigger>
+                <TabsTrigger value="published">
+                  Опубликованные {stats.published > 0 && <span className="ml-1.5 text-xs">({stats.published})</span>}
                 </TabsTrigger>
                 <TabsTrigger value="archived">
                   Архив {stats.archived > 0 && <span className="ml-1.5 text-xs">({stats.archived})</span>}
