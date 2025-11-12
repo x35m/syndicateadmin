@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import Anthropic from '@anthropic-ai/sdk'
 import JSON5 from 'json5'
+import { jsonrepair } from 'jsonrepair'
 
 const MAX_CONTENT_LENGTH = 15000
 
@@ -272,20 +273,33 @@ export async function POST(request: Request) {
         city?: string | null
       }
     } catch (firstError) {
+      let secondError: unknown = null
       try {
         taxonomyData = JSON5.parse(jsonText) as {
           country?: string | null
           city?: string | null
         }
-      } catch (parseError) {
-        console.error(
-          'Failed to parse taxonomy JSON:',
-          parseError,
-          'Original error:',
-          firstError,
-          jsonText
-        )
-        throw new Error('Failed to parse taxonomy JSON from AI response')
+      } catch (json5Error) {
+        secondError = json5Error
+        try {
+          const repaired = jsonrepair(jsonText)
+          taxonomyData = JSON.parse(repaired) as {
+            country?: string | null
+            city?: string | null
+          }
+        } catch (repairError) {
+          console.error(
+            'Failed to parse taxonomy JSON:',
+            repairError,
+            'JSON5 error:',
+            secondError,
+            'Original error:',
+            firstError,
+            'Payload:',
+            jsonText
+          )
+          throw new Error('Failed to parse taxonomy JSON from AI response')
+        }
       }
     }
 
