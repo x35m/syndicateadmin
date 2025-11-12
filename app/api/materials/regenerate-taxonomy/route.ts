@@ -2,6 +2,7 @@ import type { City, Country } from '@/lib/types'
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import Anthropic from '@anthropic-ai/sdk'
+import JSON5 from 'json5'
 
 const MAX_CONTENT_LENGTH = 15000
 
@@ -261,9 +262,31 @@ export async function POST(request: Request) {
       throw new Error('Failed to extract JSON from AI response')
     }
 
-    const taxonomyData = JSON.parse(jsonText) as {
+    let taxonomyData: {
       country?: string | null
       city?: string | null
+    }
+    try {
+      taxonomyData = JSON.parse(jsonText) as {
+        country?: string | null
+        city?: string | null
+      }
+    } catch (firstError) {
+      try {
+        taxonomyData = JSON5.parse(jsonText) as {
+          country?: string | null
+          city?: string | null
+        }
+      } catch (parseError) {
+        console.error(
+          'Failed to parse taxonomy JSON:',
+          parseError,
+          'Original error:',
+          firstError,
+          jsonText
+        )
+        throw new Error('Failed to parse taxonomy JSON from AI response')
+      }
     }
 
     const countryName = sanitizeString(taxonomyData.country)

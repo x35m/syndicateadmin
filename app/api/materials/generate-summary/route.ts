@@ -2,6 +2,7 @@ import type { City, Country } from '@/lib/types'
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import Anthropic from '@anthropic-ai/sdk'
+import JSON5 from 'json5'
 
 const DEFAULT_ANALYSIS_PROMPT = `Ты - аналитик новостного контента. Проанализируй статью и предоставь структурированный результат.
 
@@ -356,15 +357,25 @@ export async function POST(request: Request) {
 
     try {
       parsedResponse = JSON.parse(jsonPayload)
-    } catch (parseError) {
-      console.error(`Failed to parse JSON from ${aiProvider}:`, parseError, jsonPayload)
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Не удалось разобрать JSON от нейросети. Проверьте формат ответа.',
-        },
-        { status: 500 }
-      )
+    } catch (firstError) {
+      try {
+        parsedResponse = JSON5.parse(jsonPayload)
+      } catch (parseError) {
+        console.error(
+          `Failed to parse JSON from ${aiProvider}:`,
+          parseError,
+          'Original error:',
+          firstError,
+          jsonPayload
+        )
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Не удалось разобрать JSON от нейросети. Проверьте формат ответа.',
+          },
+          { status: 500 }
+        )
+      }
     }
 
     const summary = sanitizeString(parsedResponse.summary)
