@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import type { Material } from '@/lib/types'
 
 export async function GET(request: NextRequest) {
   try {
@@ -91,41 +92,136 @@ export async function PATCH(request: NextRequest) {
       )
     }
 
-    const updates: {
-      status?: string
-      processed?: boolean
-      published?: boolean
-    } = {}
+    const material = await db.getMaterialById(id)
+    if (!material) {
+      return NextResponse.json(
+        { success: false, error: 'Material not found' },
+        { status: 404 }
+      )
+    }
+
     const summaryUpdates: {
       summary?: string
       metaDescription?: string
     } = {}
 
-    if (typeof status === 'string' && status.trim().length > 0) {
-      updates.status = status.trim()
-    }
-    if (typeof processed === 'boolean') {
-      updates.processed = processed
-    }
-    if (typeof published === 'boolean') {
-      updates.published = published
-    }
+    const normalizedSummary =
+      typeof summary === 'string' ? summary.trim() : undefined
+
     if (typeof summary === 'string') {
       summaryUpdates.summary = summary
     }
+
     if (typeof metaDescription === 'string') {
       summaryUpdates.metaDescription = metaDescription
     }
 
-    if (Object.keys(updates).length === 0 && Object.keys(summaryUpdates).length === 0) {
+    let nextProcessed =
+      typeof processed === 'boolean' ? processed : material.processed
+    let nextPublished =
+      typeof published === 'boolean' ? published : material.published
+
+    const statusFromPayload =
+      typeof status === 'string' && status.trim().length > 0
+        ? (status.trim() as Material['status'])
+        : undefined
+
+    if (normalizedSummary !== undefined) {
+      if (normalizedSummary.length === 0) {
+        nextProcessed = false
+        nextPublished = false
+      } else {
+        nextProcessed = true
+      }
+    }
+
+    if (statusFromPayload) {
+      switch (statusFromPayload) {
+        case 'archived':
+          nextPublished = false
+          break
+        case 'published':
+          nextProcessed = true
+          nextPublished = true
+          break
+        case 'processed':
+          nextProcessed = true
+          nextPublished = false
+          break
+        case 'new':
+          nextProcessed = false
+          nextPublished = false
+          break
+        default:
+          break
+      }
+    }
+
+    if (nextPublished) {
+      const effectiveSummary =
+        normalizedSummary !== undefined
+          ? normalizedSummary
+          : (material.summary ?? '').trim()
+
+      if (!effectiveSummary) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Нельзя опубликовать материал без саммари',
+          },
+          { status: 400 }
+        )
+      }
+      nextProcessed = true
+    }
+
+    let nextStatus: Material['status']
+    if (statusFromPayload === 'archived') {
+      nextStatus = 'archived'
+    } else if (statusFromPayload === 'new') {
+      nextStatus = 'new'
+    } else if (statusFromPayload === 'processed') {
+      nextStatus = 'processed'
+    } else if (statusFromPayload === 'published') {
+      nextStatus = 'published'
+    } else if (material.status === 'archived') {
+      nextStatus = 'archived'
+    } else if (nextPublished) {
+      nextStatus = 'published'
+    } else if (nextProcessed) {
+      nextStatus = 'processed'
+    } else {
+      nextStatus = 'new'
+    }
+
+    const attributeUpdates: {
+      status?: string
+      processed?: boolean
+      published?: boolean
+    } = {}
+
+    if (nextStatus !== material.status) {
+      attributeUpdates.status = nextStatus
+    }
+    if (nextProcessed !== material.processed) {
+      attributeUpdates.processed = nextProcessed
+    }
+    if (nextPublished !== material.published) {
+      attributeUpdates.published = nextPublished
+    }
+
+    if (
+      Object.keys(attributeUpdates).length === 0 &&
+      Object.keys(summaryUpdates).length === 0
+    ) {
       return NextResponse.json(
         { success: false, error: 'No updates were provided' },
         { status: 400 }
       )
     }
 
-    if (Object.keys(updates).length > 0) {
-      await db.updateMaterialAttributes(id, updates)
+    if (Object.keys(attributeUpdates).length > 0) {
+      await db.updateMaterialAttributes(id, attributeUpdates)
     }
 
     if (Object.keys(summaryUpdates).length > 0) {

@@ -181,7 +181,6 @@ export default function MaterialsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [pendingAction, setPendingAction] = useState<BulkAction>(null)
   const [bulkActionLoading, setBulkActionLoading] = useState(false)
-  const [togglingPublished, setTogglingPublished] = useState<Set<string>>(new Set())
   const [stats, setStats] = useState<MaterialsStats>({ total: 0, new: 0, processed: 0, published: 0, archived: 0 })
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
@@ -344,57 +343,6 @@ export default function MaterialsPage() {
     []
   )
 
-  const computeStatus = (
-    processedFlag: boolean,
-    publishedFlag: boolean,
-    currentStatus: Material['status']
-  ): Material['status'] => {
-    if (currentStatus === 'archived') {
-      return 'archived'
-    }
-    if (publishedFlag) {
-      return 'published'
-    }
-    if (processedFlag) {
-      return 'processed'
-    }
-    return 'new'
-  }
-
-  const togglePublished = async (material: Material, value: boolean) => {
-    setTogglingPublished((prev) => {
-      const next = new Set(prev)
-      next.add(material.id)
-      return next
-    })
-
-    const nextStatus = computeStatus(material.processed, value, material.status)
-    const payload: { published: boolean; status?: Material['status'] } = { published: value }
-    if (material.status !== nextStatus) {
-      payload.status = nextStatus
-    }
-
-    try {
-      await patchMaterial(material.id, payload)
-      toast.success(value ? 'Материал опубликован' : 'Публикация снята')
-      setSelectedMaterial((prev) =>
-        prev && prev.id === material.id
-          ? { ...prev, published: value, status: payload.status ?? prev.status }
-          : prev
-      )
-      await fetchMaterials(filter, currentPage, { silent: true })
-    } catch (error) {
-      console.error('Error updating publication status:', error)
-      toast.error('Не удалось обновить статус публикации')
-    } finally {
-      setTogglingPublished((prev) => {
-        const next = new Set(prev)
-        next.delete(material.id)
-        return next
-      })
-    }
-  }
-
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1)
@@ -481,16 +429,13 @@ export default function MaterialsPage() {
           
           // Check status filter
           if (matches && filter !== 'all') {
-            if (filter === 'processed' && !newMaterial.processed) {
+            if (filter === 'new' && newMaterial.status !== 'new') {
               matches = false
-            } else if (filter === 'published' && !newMaterial.published) {
+            } else if (filter === 'processed' && newMaterial.status !== 'processed') {
+              matches = false
+            } else if (filter === 'published' && newMaterial.status !== 'published') {
               matches = false
             } else if (filter === 'archived' && newMaterial.status !== 'archived') {
-              matches = false
-            } else if (
-              filter === 'new' &&
-              (newMaterial.processed || newMaterial.status === 'archived')
-            ) {
               matches = false
             } else if (!['processed', 'published', 'archived', 'new'].includes(filter)) {
               if (newMaterial.status !== filter) {
@@ -624,7 +569,9 @@ export default function MaterialsPage() {
           toast.warning(`Успешно: ${successCount}, Ошибки: ${errorCount}. ${firstError}`)
         }
       } else {
-          if (action === 'delete') {
+        let affectedCount = idsArray.length
+
+        if (action === 'delete') {
           for (const id of idsArray) {
             await fetch(`/api/materials?id=${id}`, {
               method: 'DELETE',
@@ -632,14 +579,34 @@ export default function MaterialsPage() {
           }
         } else if (action === 'published') {
           const materialsById = new Map(materials.map((item) => [item.id, item]))
+          const skipped: string[] = []
+          let updatedCount = 0
+
           for (const id of idsArray) {
             const material = materialsById.get(id)
-            const nextStatus = computeStatus(material?.processed ?? false, true, material?.status ?? 'new')
+            if (!material) continue
+            if (!material.summary || material.summary.trim().length === 0) {
+              skipped.push(material.title)
+              continue
+            }
+
             await patchMaterial(id, {
               published: true,
-              status: nextStatus,
             })
+            updatedCount++
           }
+
+          if (skipped.length > 0) {
+            toast.warning(
+              `Пропущено ${skipped.length} материал(ов) без саммари`
+            )
+          }
+
+          if (updatedCount === 0) {
+            toast.error('Нет материалов с саммари для публикации')
+          }
+
+          affectedCount = updatedCount
         } else if (action === 'archived') {
           for (const id of idsArray) {
             await patchMaterial(id, {
@@ -659,7 +626,7 @@ export default function MaterialsPage() {
         }
         
         toast.success(
-          `Успешно ${actionNames[action as keyof typeof actionNames]} ${idsArray.length} материал(ов)`
+          `Успешно ${actionNames[action as keyof typeof actionNames]} ${affectedCount} материал(ов)`
         )
       }
     } catch (error) {
@@ -1012,7 +979,7 @@ export default function MaterialsPage() {
       case 'new':
         return <Badge variant="default">Новый</Badge>
       case 'processed':
-        return <Badge variant="secondary" className="bg-green-500/10 text-green-700 dark:text-green-400">Обработанные</Badge>
+        return <Badge variant="secondary" className="bg-green-500/10 text-green-700 dark:text-green-400">Обработан</Badge>
       case 'published':
         return <Badge variant="secondary" className="bg-blue-500/10 text-blue-700 dark:text-blue-400">Опубликован</Badge>
       case 'archived':
@@ -1198,7 +1165,7 @@ export default function MaterialsPage() {
                     label="Категории"
                     options={taxonomy.categories.map((item) => ({
                       value: item.id,
-                      label: item.name,
+                      label: item.isHidden ? `${item.name} (скрыта)` : item.name,
                     }))}
                     selected={materialFilters.categories}
                     onChange={(values) =>
@@ -1369,8 +1336,7 @@ export default function MaterialsPage() {
                       <TableHead className="w-[220px]">Категории</TableHead>
                       <TableHead>Источник</TableHead>
                       <TableHead className="w-[130px]">Дата</TableHead>
-                      <TableHead className="w-[160px]">Статус обработки</TableHead>
-                      <TableHead className="w-[160px]">Статус публикации</TableHead>
+                      <TableHead className="w-[140px]">Статус</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1428,51 +1394,8 @@ export default function MaterialsPage() {
                         </TableCell>
                         <TableCell onClick={() => openMaterialDialog(material)}>{formatDate(material.createdAt)}</TableCell>
                         <TableCell onClick={() => openMaterialDialog(material)}>
-                          <Badge
-                            variant={material.processed ? 'secondary' : 'outline'}
-                            className={
-                              material.processed
-                                ? 'border-green-500/20 bg-green-500/10 text-green-700 dark:text-green-400'
-                                : 'text-muted-foreground'
-                            }
-                          >
-                            {material.processed ? 'Обработан' : 'Не обработан'}
-                          </Badge>
+                          {getStatusBadge(material.status)}
                         </TableCell>
-                        <TableCell onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center gap-2">
-                            <Badge
-                              variant={material.published ? 'secondary' : 'outline'}
-                              className={
-                                material.published
-                                  ? 'border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-400'
-                                  : 'text-muted-foreground'
-                              }
-                            >
-                              {material.published ? 'Опубликован' : 'Не опубликован'}
-                            </Badge>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => togglePublished(material, !material.published)}
-                              disabled={togglingPublished.has(material.id) || bulkActionLoading}
-                              title={
-                                material.published
-                                  ? 'Снять публикацию'
-                                  : 'Опубликовать материал'
-                              }
-                            >
-                              {togglingPublished.has(material.id) ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : material.published ? (
-                                <X className="h-4 w-4 text-red-500" />
-                              ) : (
-                                <CheckCircle className="h-4 w-4 text-blue-500" />
-                              )}
-                            </Button>
-                          </div>
-                        </TableCell>
-                        <TableCell onClick={() => openMaterialDialog(material)}>{getStatusBadge(material.status)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -1632,24 +1555,6 @@ export default function MaterialsPage() {
                       {selectedMaterial?.published ? 'Опубликован' : 'Не опубликован'}
                     </Badge>
                   </div>
-                  {selectedMaterial && (
-                    <div className="flex flex-wrap items-center gap-4 pt-1 text-xs text-muted-foreground">
-                      <label className="flex items-center gap-2">
-                        <Checkbox
-                          checked={selectedMaterial.published}
-                          onCheckedChange={(checked) =>
-                            togglePublished(selectedMaterial, checked === true)
-                          }
-                          disabled={togglingPublished.has(selectedMaterial.id)}
-                        />
-                        <span>
-                          {togglingPublished.has(selectedMaterial.id)
-                            ? 'Обновляем статус публикации...'
-                            : 'Опубликован'}
-                        </span>
-                      </label>
-                    </div>
-                  )}
                 </DialogDescription>
               </DialogHeader>
               
@@ -1694,16 +1599,22 @@ export default function MaterialsPage() {
                     </span>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {selectedMaterial?.categories?.length ? (
-                      selectedMaterial.categories.map((category) => {
-                        const isSelected = pendingTaxonomy.categoryIds.includes(category.id)
-                        return (
+                    {pendingTaxonomy.categoryIds.length > 0 ? (
+                      pendingTaxonomy.categoryIds
+                        .map((id) => taxonomy.categories.find((category) => category.id === id))
+                        .filter((category): category is Category => Boolean(category))
+                        .map((category) => (
                           <Badge
                             key={`pub-category-${category.id}`}
-                            variant={isSelected ? 'secondary' : 'outline'}
+                            variant={category.isHidden ? 'outline' : 'secondary'}
                             className="gap-1"
                           >
                             {category.name}
+                            {category.isHidden && (
+                              <span className="ml-1 rounded bg-muted px-1 text-[10px] uppercase text-muted-foreground">
+                                скрыта
+                              </span>
+                            )}
                             <Button
                               type="button"
                               variant="ghost"
@@ -1714,10 +1625,11 @@ export default function MaterialsPage() {
                               <X className="h-3 w-3" />
                             </Button>
                           </Badge>
-                        )
-                      })
+                        ))
                     ) : (
-                      <span className="text-xs text-muted-foreground">У материала нет сохранённых категорий</span>
+                      <span className="text-xs text-muted-foreground">
+                        У материала нет выбранных категорий
+                      </span>
                     )}
                   </div>
                 </div>
@@ -1764,7 +1676,7 @@ export default function MaterialsPage() {
                           label="Добавить из списка"
                           options={taxonomy.categories.map((category) => ({
                             value: category.id,
-                            label: category.name,
+                            label: category.isHidden ? `${category.name} (скрыта)` : category.name,
                           }))}
                           selected={pendingTaxonomy.categoryIds}
                           onChange={(values) =>

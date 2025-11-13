@@ -45,11 +45,12 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json()
-    const { type, id, name, countryId } = body as {
+    const { type, id, name, countryId, isHidden } = body as {
       type?: 'category' | 'country' | 'city'
       id?: number
       name?: string
       countryId?: number | null
+      isHidden?: boolean
     }
 
     if (!type || !id) {
@@ -62,6 +63,7 @@ export async function PATCH(request: Request) {
     const updated = await db.updateTaxonomyItem(type, id, {
       name,
       countryId,
+      isHidden,
     })
 
     return NextResponse.json({ success: true, data: updated })

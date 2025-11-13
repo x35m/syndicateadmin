@@ -33,6 +33,7 @@ export interface ApiConfig {
 export interface Category {
   id: number
   name: string
+  isHidden?: boolean
 }
 
 export interface Country {

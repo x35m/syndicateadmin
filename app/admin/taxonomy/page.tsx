@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AdminHeader } from '@/components/admin-header'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -118,6 +119,9 @@ export default function TaxonomyPage() {
     countries: new Set(),
     cities: new Set(),
   })
+  const [togglingCategories, setTogglingCategories] = useState<Set<number>>(
+    () => new Set()
+  )
 
   const cityRows: CityRow[] = useMemo(() => {
     return taxonomy.countries.flatMap((country) =>
@@ -162,6 +166,51 @@ export default function TaxonomyPage() {
       toast.error('Не удалось загрузить системные промпты')
     } finally {
       setLoadingPrompts(false)
+    }
+  }
+
+  const toggleCategoryVisibility = async (
+    categoryId: number,
+    nextHidden: boolean
+  ) => {
+    setTogglingCategories((prev) => {
+      const next = new Set(prev)
+      next.add(categoryId)
+      return next
+    })
+
+    try {
+      const response = await fetch('/api/taxonomy', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'category',
+          id: categoryId,
+          isHidden: nextHidden,
+        }),
+      })
+
+      const result = await response.json()
+      if (!response.ok || !result.success) {
+        toast.error(result.error || 'Не удалось обновить категорию')
+        return
+      }
+
+      await fetchTaxonomy()
+      toast.success(
+        nextHidden
+          ? 'Категория скрыта из публичного раздела'
+          : 'Категория снова видна в публичном разделе'
+      )
+    } catch (error) {
+      console.error('Error toggling category visibility:', error)
+      toast.error('Не удалось изменить видимость категории')
+    } finally {
+      setTogglingCategories((prev) => {
+        const next = new Set(prev)
+        next.delete(categoryId)
+        return next
+      })
     }
   }
 
@@ -368,9 +417,9 @@ export default function TaxonomyPage() {
     }
   }
 
-  const filteredSimpleItems = (tab: SimpleKind) => {
+  const filteredSimpleItems = (tab: SimpleKind): Category[] => {
     const query = search[tab].toLowerCase()
-    const items = taxonomy[tab] as { id: number; name: string }[]
+    const items = taxonomy[tab] as Category[]
     if (!query) return items
     return items.filter((item) => item.name.toLowerCase().includes(query))
   }
@@ -460,6 +509,9 @@ export default function TaxonomyPage() {
                     />
                   </TableHead>
                   <TableHead>Название</TableHead>
+                  {tab === 'categories' && (
+                    <TableHead className="w-40 text-center">Видимость</TableHead>
+                  )}
                   <TableHead className="w-16 text-right">Действия</TableHead>
                 </TableRow>
               </TableHeader>
@@ -473,6 +525,29 @@ export default function TaxonomyPage() {
                       />
                     </TableCell>
                     <TableCell className="font-medium">{item.name}</TableCell>
+                    {tab === 'categories' && (
+                      <TableCell>
+                        <div className="flex items-center justify-center gap-2">
+                          <Badge variant={item.isHidden ? 'outline' : 'default'}>
+                            {item.isHidden ? 'Скрыта' : 'Видна'}
+                          </Badge>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              toggleCategoryVisibility(item.id, !item.isHidden)
+                            }
+                            disabled={togglingCategories.has(item.id)}
+                          >
+                            {togglingCategories.has(item.id)
+                              ? 'Сохранение...'
+                              : item.isHidden
+                              ? 'Показать'
+                              : 'Скрыть'}
+                          </Button>
+                        </div>
+                      </TableCell>
+                    )}
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>

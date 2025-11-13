@@ -46,7 +46,7 @@ export class DatabaseService {
             LEFT JOIN LATERAL (
               SELECT COALESCE(
                 json_agg(
-                  json_build_object('id', cat.id, 'name', cat.name)
+             json_build_object('id', cat.id, 'name', cat.name, 'isHidden', cat.is_hidden)
                   ORDER BY cat.name
                 ),
                 '[]'::json
@@ -119,8 +119,14 @@ export class DatabaseService {
         CREATE TABLE IF NOT EXISTS categories (
           id SERIAL PRIMARY KEY,
           name TEXT NOT NULL UNIQUE,
+          is_hidden BOOLEAN NOT NULL DEFAULT FALSE,
           created_at TIMESTAMP NOT NULL DEFAULT NOW()
         )
+      `)
+
+      await client.query(`
+        ALTER TABLE categories
+        ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN NOT NULL DEFAULT FALSE
       `)
 
       await client.query(`
@@ -380,10 +386,18 @@ export class DatabaseService {
   }
 
   private transformMaterialRow(row: any): Material {
+    const categories = Array.isArray(row.categories)
+      ? row.categories.map((category: any) => ({
+          ...category,
+          isHidden: Boolean(category.isHidden),
+        }))
+      : []
+
     return {
       ...row,
       processed: Boolean(row.processed),
       published: Boolean(row.published),
+      categories,
       countries: row.countries_data || [],
       cities: row.cities_data || [],
     }
@@ -538,7 +552,7 @@ export class DatabaseService {
     countries: Array<Country & { cities: City[] }>
   }> {
     const [categoriesResult, countriesResult, citiesResult] = await Promise.all([
-      pool.query('SELECT id, name FROM categories ORDER BY name ASC'),
+      pool.query('SELECT id, name, is_hidden AS "isHidden" FROM categories ORDER BY name ASC'),
       pool.query('SELECT id, name FROM countries ORDER BY name ASC'),
       pool.query('SELECT id, name, country_id AS "countryId" FROM cities ORDER BY name ASC'),
     ])
@@ -574,7 +588,12 @@ export class DatabaseService {
 
     switch (type) {
       case 'category':
-        return (await pool.query('INSERT INTO categories (name) VALUES ($1) RETURNING id, name', [trimmedName])).rows[0]
+        return (
+          await pool.query(
+            'INSERT INTO categories (name) VALUES ($1) RETURNING id, name, is_hidden AS "isHidden"',
+            [trimmedName]
+          )
+        ).rows[0]
       case 'country':
         return (await pool.query('INSERT INTO countries (name) VALUES ($1) RETURNING id, name', [trimmedName])).rows[0]
       case 'city': {
@@ -597,19 +616,40 @@ export class DatabaseService {
   async updateTaxonomyItem(
     type: 'category' | 'country' | 'city',
     id: number,
-    data: { name?: string; countryId?: number | null }
+    data: { name?: string; countryId?: number | null; isHidden?: boolean }
   ) {
-    const trimmedName = data.name?.trim() ?? ''
+    const trimmedName = data.name?.trim()
 
     switch (type) {
-      case 'category':
-        if (!trimmedName) throw new Error('Название категории не может быть пустым')
+      case 'category': {
+        const updates: string[] = []
+        const values: any[] = []
+        let paramIndex = 1
+
+        if (trimmedName !== undefined) {
+          if (!trimmedName) throw new Error('Название категории не может быть пустым')
+          updates.push(`name = $${paramIndex}`)
+          values.push(trimmedName)
+          paramIndex++
+        }
+
+        if (typeof data.isHidden === 'boolean') {
+          updates.push(`is_hidden = $${paramIndex}`)
+          values.push(data.isHidden)
+          paramIndex++
+        }
+
+        if (updates.length === 0) {
+          throw new Error('Нет данных для обновления категории')
+        }
+
         return (
           await pool.query(
-            'UPDATE categories SET name = $1 WHERE id = $2 RETURNING id, name',
-            [trimmedName, id]
+            `UPDATE categories SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING id, name, is_hidden AS "isHidden"`,
+            [...values, id]
           )
         ).rows[0]
+      }
       case 'country':
         if (!trimmedName) throw new Error('Название страны не может быть пустым')
         return (

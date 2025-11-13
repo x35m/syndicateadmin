@@ -6,8 +6,13 @@ export const dynamic = 'force-dynamic'
 export async function GET() {
   try {
     const publishedMaterials = await db.getMaterialsByStatus('published')
-    const materials = publishedMaterials.filter((material) => material.processed)
-    
+    const processedMaterials = publishedMaterials.filter((material) => material.processed)
+
+    const materials = processedMaterials.map((material) => ({
+      ...material,
+      categories: (material.categories ?? []).filter((category) => !category?.isHidden),
+    }))
+
     const sources = Array.from(
       new Set(
         materials
