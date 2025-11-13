@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { logSystemError } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,6 +18,7 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error('Error fetching categorization logs:', error)
+    await logSystemError('api/categorization-logs', error)
     return NextResponse.json(
       { success: false, error: 'Не удалось получить логи классификации' },
       { status: 500 }

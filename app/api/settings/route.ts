@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { logSystemError } from '@/lib/logger'
 
 export async function GET() {
   try {
@@ -72,6 +73,7 @@ export async function GET() {
     })
   } catch (error) {
     console.error('Error fetching settings:', error)
+    await logSystemError('api/settings', error, { method: 'GET' })
     return NextResponse.json(
       { success: false, error: 'Failed to fetch settings' },
       { status: 500 }
@@ -120,6 +122,7 @@ export async function POST(request: Request) {
     })
   } catch (error) {
     console.error('Error saving settings:', error)
+    await logSystemError('api/settings', error, { method: 'POST' })
     return NextResponse.json(
       { success: false, error: 'Failed to save settings' },
       { status: 500 }

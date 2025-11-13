@@ -2,6 +2,7 @@ import cron from 'node-cron'
 import { db } from './db'
 import { rssParser } from './rss-parser'
 import { broadcastNewMaterial, broadcastSyncProgress, broadcastSyncComplete } from './sse-manager'
+import { logSystemError } from './logger'
 
 let isRunning = false
 
@@ -65,6 +66,11 @@ export async function fetchAndSaveMaterials() {
         console.log(`[${new Date().toISOString()}] ${feed.title}: ${materials.length} fetched, ${stats.new} new, ${stats.updated} updated`)
       } catch (feedError) {
         console.error(`[${new Date().toISOString()}] Error syncing feed ${feed.title}:`, feedError)
+        await logSystemError('cron/fetch-feed', feedError, {
+          feedId: feed.id,
+          feedTitle: feed.title,
+          feedUrl: feed.url,
+        })
         totalErrors++
       }
     }
@@ -90,6 +96,7 @@ export async function fetchAndSaveMaterials() {
     }
   } catch (error) {
     console.error('Error in fetchAndSaveMaterials:', error)
+    await logSystemError('cron/fetch-and-save', error)
     throw error
   } finally {
     isRunning = false
@@ -104,6 +111,7 @@ export function initCronJob() {
       await fetchAndSaveMaterials()
     } catch (error) {
       console.error('Cron job error:', error)
+      await logSystemError('cron/job', error)
     }
   })
 
@@ -119,5 +127,6 @@ export async function runInitialFetch() {
     await fetchAndSaveMaterials()
   } catch (error) {
     console.error('Initial fetch error:', error)
+    await logSystemError('cron/initial-fetch', error)
   }
 }

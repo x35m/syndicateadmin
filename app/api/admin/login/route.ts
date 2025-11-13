@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
+import { logSystemError } from '@/lib/logger'
+
+export const runtime = 'nodejs'
 
 const ADMIN_USERNAME = 'boss'
 const ADMIN_PASSWORD = '149521MkSF#u*V'
@@ -31,6 +34,7 @@ export async function POST(request: Request) {
     )
   } catch (error) {
     console.error('Login error:', error)
+    await logSystemError('api/admin/login', error)
     return NextResponse.json(
       { success: false, error: 'Login failed' },
       { status: 500 }

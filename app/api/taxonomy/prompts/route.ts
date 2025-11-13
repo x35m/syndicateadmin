@@ -2,6 +2,7 @@
 
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { logSystemError } from '@/lib/logger'
 
 type PromptType = 'category' | 'country' | 'city'
 
@@ -36,8 +37,9 @@ export async function GET() {
     return NextResponse.json({ success: true, data: prompts })
   } catch (error) {
     console.error('Error fetching taxonomy prompts:', error)
+    await logSystemError('api/taxonomy/prompts', error, { method: 'GET' })
     return NextResponse.json(
-      { success: false, error: 'Не удалось получить системные промпты' },
+      { success: false, error: 'Failed to fetch taxonomy prompts' },
       { status: 500 }
     )
   }
@@ -60,9 +62,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Error updating taxonomy prompt:', error)
+    console.error('Error updating taxonomy prompts:', error)
+    await logSystemError('api/taxonomy/prompts', error, { method: 'POST' })
     return NextResponse.json(
-      { success: false, error: 'Не удалось сохранить промпт' },
+      { success: false, error: 'Failed to update taxonomy prompts' },
       { status: 500 }
     )
   }

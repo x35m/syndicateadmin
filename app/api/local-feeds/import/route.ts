@@ -1,6 +1,8 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { rssParser } from '@/lib/rss-parser'
+import { broadcastNewMaterial, broadcastSyncProgress, broadcastSyncComplete } from '@/lib/sse-manager'
+import { logSystemError } from '@/lib/logger'
 
 // POST - импортировать материалы из локального фида
 export async function POST(request: Request) {
@@ -61,13 +63,11 @@ export async function POST(request: Request) {
     })
   } catch (error) {
     console.error('Error importing from local feed:', error)
-    return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Failed to import materials'
-      },
-      { status: 500 }
-    )
+    await logSystemError('api/local-feeds/import', error)
+    return NextResponse.json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to import materials',
+    }, { status: 500 })
   }
 }
 

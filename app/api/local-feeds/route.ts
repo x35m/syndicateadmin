@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { rssParser } from '@/lib/rss-parser'
+import { logSystemError } from '@/lib/logger'
 
 // GET - получить все локальные фиды
 export async function GET() {
@@ -13,11 +14,9 @@ export async function GET() {
     })
   } catch (error) {
     console.error('Error fetching local feeds:', error)
+    await logSystemError('api/local-feeds', error, { method: 'GET' })
     return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Failed to fetch feeds'
-      },
+      { success: false, error: 'Failed to fetch local feeds' },
       { status: 500 }
     )
   }
@@ -44,6 +43,10 @@ export async function POST(request: Request) {
       feedInfo = await rssParser.parseFeed(feedUrl)
     } catch (parseError) {
       console.error('[Local Feeds] Failed to parse feed:', parseError)
+      await logSystemError('api/local-feeds', parseError, {
+        method: 'POST',
+        feedUrl: feedUrl,
+      })
       
       let errorMessage = 'Не удалось загрузить или распарсить RSS фид.'
       
@@ -101,11 +104,9 @@ export async function POST(request: Request) {
     })
   } catch (error) {
     console.error('Error adding local feed:', error)
+    await logSystemError('api/local-feeds', error, { method: 'POST' })
     return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Failed to add feed'
-      },
+      { success: false, error: 'Failed to add local feed' },
       { status: 500 }
     )
   }
@@ -132,11 +133,9 @@ export async function PATCH(request: Request) {
     })
   } catch (error) {
     console.error('Error updating feed title:', error)
+    await logSystemError('api/local-feeds', error, { method: 'PATCH' })
     return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Failed to update feed title'
-      },
+      { success: false, error: 'Failed to update feed title' },
       { status: 500 }
     )
   }
@@ -163,11 +162,9 @@ export async function DELETE(request: Request) {
     })
   } catch (error) {
     console.error('Error deleting local feed:', error)
+    await logSystemError('api/local-feeds', error, { method: 'DELETE' })
     return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Failed to delete feed'
-      },
+      { success: false, error: 'Failed to delete local feed' },
       { status: 500 }
     )
   }

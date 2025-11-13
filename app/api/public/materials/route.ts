@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { logSystemError } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,6 +54,7 @@ export async function GET() {
     })
   } catch (error) {
     console.error('Error fetching public materials:', error)
+    await logSystemError('api/public/materials', error)
     return NextResponse.json(
       { success: false, error: 'Failed to fetch materials' },
       { status: 500 }

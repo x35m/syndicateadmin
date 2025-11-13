@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { logSystemError } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
 
@@ -46,6 +47,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, data: updated })
   } catch (error) {
     console.error('Error updating material taxonomy:', error)
+    await logSystemError('api/materials/taxonomy', error)
     const message = error instanceof Error ? error.message : 'Не удалось обновить таксономию материала'
     return NextResponse.json({ success: false, error: message }, { status: 400 })
   }

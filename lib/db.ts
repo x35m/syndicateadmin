@@ -1,5 +1,5 @@
 import { Pool } from 'pg'
-import { Material, Category, Country, City, CategorizationLog } from './types'
+import { Material, Category, Country, City, CategorizationLog, SystemLog } from './types'
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || process.env.DATABASE_PUBLIC_URL,
@@ -142,6 +142,26 @@ export class DatabaseService {
           metadata JSONB,
           created_at TIMESTAMP NOT NULL DEFAULT NOW()
         )
+      `)
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS system_logs (
+          id SERIAL PRIMARY KEY,
+          level VARCHAR(32) NOT NULL DEFAULT 'error',
+          source TEXT,
+          message TEXT NOT NULL,
+          details JSONB,
+          stack TEXT,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `)
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_system_logs_created_at ON system_logs(created_at DESC)
+      `)
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_system_logs_level ON system_logs(level)
       `)
 
       await client.query(`
@@ -1115,6 +1135,79 @@ export class DatabaseService {
           row.validationConfidence !== null ? Number(row.validationConfidence) : null,
         reasoning,
         metadata,
+        createdAt: row.createdAt,
+      }
+    })
+  }
+
+  async logSystemEvent(data: {
+    level?: string
+    source?: string
+    message: string
+    details?: Record<string, unknown>
+    stack?: string
+  }): Promise<void> {
+    const level = data.level && data.level.trim().length > 0 ? data.level : 'error'
+    await pool.query(
+      `
+      INSERT INTO system_logs (
+        level,
+        source,
+        message,
+        details,
+        stack
+      ) VALUES ($1, $2, $3, $4, $5)
+      `,
+      [
+        level,
+        data.source ?? null,
+        data.message,
+        data.details ? JSON.stringify(data.details) : null,
+        data.stack ?? null,
+      ]
+    )
+  }
+
+  async getSystemLogs(limit = 200): Promise<SystemLog[]> {
+    const result = await pool.query(
+      `
+      SELECT 
+        id,
+        level,
+        source,
+        message,
+        details,
+        stack,
+        created_at AS "createdAt"
+      FROM system_logs
+      ORDER BY created_at DESC
+      LIMIT $1
+      `,
+      [limit]
+    )
+
+    return result.rows.map((row) => {
+      let details: Record<string, unknown> | null = null
+      if (row.details) {
+        if (typeof row.details === 'string') {
+          try {
+            details = JSON.parse(row.details)
+          } catch (error) {
+            console.warn('Failed to parse system log details:', error)
+            details = { raw: row.details }
+          }
+        } else {
+          details = row.details
+        }
+      }
+
+      return {
+        id: row.id,
+        level: row.level,
+        source: row.source,
+        message: row.message,
+        details,
+        stack: row.stack ?? null,
         createdAt: row.createdAt,
       }
     })

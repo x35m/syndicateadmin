@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { logSystemError } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,7 +10,11 @@ export async function GET() {
     return NextResponse.json({ success: true, ...taxonomy })
   } catch (error) {
     console.error('Error fetching taxonomy:', error)
-    return NextResponse.json({ success: false, error: 'Не удалось получить данные таксономии' }, { status: 500 })
+    await logSystemError('api/taxonomy', error, { method: 'GET' })
+    return NextResponse.json(
+      { success: false, error: 'Failed to fetch taxonomy' },
+      { status: 500 }
+    )
   }
 }
 
@@ -37,6 +42,7 @@ export async function POST(request: Request) {
     }
   } catch (error) {
     console.error('Error creating taxonomy item:', error)
+    await logSystemError('api/taxonomy', error, { method: 'POST' })
     const message = error instanceof Error ? error.message : 'Не удалось создать элемент'
     return NextResponse.json({ success: false, error: message }, { status: 400 })
   }
@@ -69,6 +75,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ success: true, data: updated })
   } catch (error) {
     console.error('Error updating taxonomy item:', error)
+    await logSystemError('api/taxonomy', error, { method: 'PATCH' })
     const message = error instanceof Error ? error.message : 'Не удалось обновить элемент'
     const status =
       error instanceof Error && 'code' in error && (error as { code?: string }).code === '23505'
@@ -100,6 +107,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Error deleting taxonomy item:', error)
+    await logSystemError('api/taxonomy', error, { method: 'DELETE' })
     const message =
       error instanceof Error && error.message
         ? error.message

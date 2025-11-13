@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { fetchAndSaveMaterials } from '@/lib/cron'
+import { logSystemError } from '@/lib/logger'
 
 export async function POST() {
   try {
@@ -12,11 +13,9 @@ export async function POST() {
     })
   } catch (error) {
     console.error('Sync API Error:', error)
+    await logSystemError('api/sync', error)
     return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Failed to sync materials'
-      },
+      { success: false, error: 'Failed to start synchronization' },
       { status: 500 }
     )
   }

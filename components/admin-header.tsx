@@ -16,7 +16,7 @@ export function AdminHeader() {
     { href: '/admin/materials', label: 'Материалы' },
     { href: '/admin/rss', label: 'RSS фиды' },
     { href: '/admin/taxonomy', label: 'Справочники' },
-    { href: '/admin/logs', label: 'Логи AI' },
+    { href: '/admin/logs', label: 'Логи' },
     { href: '/admin/settings', label: 'Настройки' },
   ]
 

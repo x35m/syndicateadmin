@@ -60,3 +60,13 @@ export interface CategorizationLog {
   metadata?: Record<string, unknown> | null
   createdAt: string
 }
+
+export interface SystemLog {
+  id: number
+  level: string
+  source?: string | null
+  message: string
+  details?: Record<string, unknown> | null
+  stack?: string | null
+  createdAt: string
+}

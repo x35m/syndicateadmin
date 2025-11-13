@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { logSystemError } from '@/lib/logger'
 
 export async function GET() {
   try {
@@ -18,6 +19,7 @@ export async function GET() {
     })
   } catch (error) {
     console.error('Stats API Error:', error)
+    await logSystemError('api/stats', error)
     return NextResponse.json(
       { success: false, error: 'Failed to fetch stats' },
       { status: 500 }

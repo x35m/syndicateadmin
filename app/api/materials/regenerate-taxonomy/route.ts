@@ -6,6 +6,7 @@ import {
   parseJsonWithFallback,
 } from '@/lib/ai/category-classifier'
 import { callClaude, CLAUDE_MODEL_PREFERENCE } from '@/lib/ai/anthropic'
+import { logSystemError } from '@/lib/logger'
 
 const MAX_CONTENT_LENGTH = 15000
 
@@ -113,8 +114,11 @@ const DEFAULT_TAXONOMY_PROMPTS: Record<PromptType, string> = {
 }
 
 export async function POST(request: Request) {
+  let materialIdForLog: string | undefined
   try {
     const { materialId } = await request.json()
+
+    materialIdForLog = typeof materialId === 'string' ? materialId : undefined
 
     if (!materialId) {
       return NextResponse.json(
@@ -199,13 +203,40 @@ export async function POST(request: Request) {
 
     const geminiPrompt = [systemPrompt, userPrompt].filter(Boolean).join('\n\n')
 
-    const aiResponse = await (aiProvider === 'claude'
-      ? callClaude(apiKey, claudeModel, systemPrompt, userPrompt)
-      : callGemini(apiKey, geminiModel, geminiPrompt))
+    let aiResponse: string
+    try {
+      aiResponse = await (aiProvider === 'claude'
+        ? callClaude(apiKey, claudeModel, systemPrompt, userPrompt)
+        : callGemini(apiKey, geminiModel, geminiPrompt))
+    } catch (error) {
+      console.error(`Error calling ${aiProvider} API:`, error)
+      await logSystemError('api/materials/regenerate-taxonomy', error, {
+        materialId,
+        provider: aiProvider,
+        phase: 'call-model',
+      })
+      const message = error instanceof Error ? error.message : 'Не удалось обратиться к AI'
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Ошибка при обращении к ${aiProvider === 'claude' ? 'Claude' : 'Gemini'} API: ${message}`,
+        },
+        { status: 500 }
+      )
+    }
 
     const jsonText = extractJsonFromText(aiResponse)
     if (!jsonText) {
-      throw new Error('Failed to extract JSON from AI response')
+      await logSystemError('api/materials/regenerate-taxonomy', 'Invalid AI response format', {
+        materialId,
+        provider: aiProvider,
+        phase: 'extract-json',
+        responsePreview: aiResponse.slice(0, 2000),
+      })
+      return NextResponse.json(
+        { success: false, error: 'AI не вернул корректный JSON ответ' },
+        { status: 500 }
+      )
     }
 
     let parsedTaxonomy: {
@@ -218,7 +249,16 @@ export async function POST(request: Request) {
       parsedTaxonomy = parseJsonWithFallback(jsonText) as typeof parsedTaxonomy
     } catch (error) {
       console.error('Failed to parse taxonomy JSON:', error, 'Payload:', jsonText)
-      throw new Error('Failed to parse taxonomy JSON from AI response')
+      await logSystemError('api/materials/regenerate-taxonomy', error, {
+        materialId,
+        provider: aiProvider,
+        phase: 'parse-json',
+        payloadSnippet: jsonText.slice(0, 2000),
+      })
+      return NextResponse.json(
+        { success: false, error: 'Не удалось разобрать JSON от нейросети' },
+        { status: 500 }
+      )
     }
 
     const categoryNamesRaw = Array.isArray(parsedTaxonomy.categories)
@@ -430,6 +470,9 @@ export async function POST(request: Request) {
     })
   } catch (error) {
     console.error('Error regenerating taxonomy:', error)
+    await logSystemError('api/materials/regenerate-taxonomy', error, {
+      materialId: materialIdForLog,
+    })
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Failed to regenerate taxonomy' },
       { status: 500 }

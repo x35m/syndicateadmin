@@ -6,6 +6,7 @@ import {
   parseJsonWithFallback,
 } from '@/lib/ai/category-classifier'
 import { callClaude, CLAUDE_MODEL_PREFERENCE } from '@/lib/ai/anthropic'
+import { logSystemError } from '@/lib/logger'
 
 const DEFAULT_ANALYSIS_PROMPT = `Ты - аналитик новостного контента. Проанализируй статью и предоставь структурированный результат.
 
@@ -149,9 +150,12 @@ const buildTaxonomyContext = (
 }
 
 export async function POST(request: Request) {
+  let materialIdForLog: string | undefined
   try {
     const body = await request.json()
     const { materialId } = body
+
+    materialIdForLog = typeof materialId === 'string' ? materialId : undefined
 
     if (!materialId) {
       return NextResponse.json(
@@ -196,7 +200,7 @@ export async function POST(request: Request) {
     }
 
     let contentToAnalyze = material.fullContent || material.content
-
+    
     if (!contentToAnalyze || contentToAnalyze.trim().length === 0) {
       return NextResponse.json(
         {
@@ -206,7 +210,7 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
-
+    
     if (contentToAnalyze.length > MAX_CONTENT_LENGTH) {
       console.log(
         `Content too long (${contentToAnalyze.length}), truncating to ${MAX_CONTENT_LENGTH}`
@@ -277,6 +281,11 @@ export async function POST(request: Request) {
       }
     } catch (error) {
       console.error(`Error calling ${aiProvider} API:`, error)
+      await logSystemError('api/materials/generate-summary', error, {
+        materialId,
+        provider: aiProvider,
+        phase: 'call-model',
+      })
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
       return NextResponse.json(
         {
@@ -296,6 +305,12 @@ export async function POST(request: Request) {
 
     if (!jsonPayload) {
       console.error(`${aiProvider} response is not valid JSON. Full text:`, textResponse)
+      await logSystemError('api/materials/generate-summary', 'Invalid JSON payload', {
+        materialId,
+        provider: aiProvider,
+        phase: 'extract-json',
+        responsePreview: textResponse.slice(0, 2000),
+      })
       return NextResponse.json(
         {
           success: false,
@@ -329,6 +344,12 @@ export async function POST(request: Request) {
       parsedResponse = parseJsonWithFallback(jsonPayload) as typeof parsedResponse
     } catch (error) {
       console.error(`Failed to parse JSON from ${aiProvider}:`, error, 'Payload:', jsonPayload)
+      await logSystemError('api/materials/generate-summary', error, {
+        materialId,
+        provider: aiProvider,
+        phase: 'parse-json',
+        payloadSnippet: jsonPayload.slice(0, 2000),
+      })
       return NextResponse.json(
         {
           success: false,
@@ -351,6 +372,11 @@ export async function POST(request: Request) {
 
     if (!summary) {
       console.error('Summary is missing in parsed response:', parsedResponse)
+      await logSystemError('api/materials/generate-summary', 'Missing summary in AI response', {
+        materialId,
+        provider: aiProvider,
+        phase: 'validate-json',
+      })
       return NextResponse.json(
         {
           success: false,
@@ -602,6 +628,10 @@ export async function POST(request: Request) {
     })
   } catch (error) {
     console.error('Error generating summary and taxonomy:', error)
+    await logSystemError('api/materials/generate-summary', error, {
+      materialId: materialIdForLog,
+      phase: 'handler',
+    })
     return NextResponse.json(
       { success: false, error: 'Failed to generate summary' },
       { status: 500 }

@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import type { Material } from '@/lib/types'
+import { logSystemError } from '@/lib/logger'
 
 export async function GET(request: NextRequest) {
+  let queryForLog: Record<string, string> | undefined
   try {
     const { searchParams } = new URL(request.url)
+    queryForLog = Object.fromEntries(searchParams.entries())
     const status = searchParams.get('status')
     const page = searchParams.get('page') ? parseInt(searchParams.get('page')!) : undefined
     const pageSize = searchParams.get('pageSize') ? parseInt(searchParams.get('pageSize')!) : undefined
@@ -73,6 +76,10 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error('API Error:', error)
+    await logSystemError('api/materials', error, {
+      method: 'GET',
+      query: queryForLog,
+    })
     return NextResponse.json(
       { success: false, error: 'Failed to fetch materials' },
       { status: 500 }
@@ -81,6 +88,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  let materialIdForLog: string | undefined
   try {
     const body = await request.json()
     const { id, status, processed, published, summary, metaDescription } = body
@@ -92,6 +100,7 @@ export async function PATCH(request: NextRequest) {
       )
     }
 
+    materialIdForLog = id
     const material = await db.getMaterialById(id)
     if (!material) {
       return NextResponse.json(
@@ -234,6 +243,10 @@ export async function PATCH(request: NextRequest) {
     })
   } catch (error) {
     console.error('API Error:', error)
+    await logSystemError('api/materials', error, {
+      method: 'PATCH',
+      id: materialIdForLog,
+    })
     return NextResponse.json(
       { success: false, error: 'Failed to update material' },
       { status: 500 }
@@ -242,9 +255,11 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  let deleteId: string | null = null
   try {
     const { searchParams } = new URL(request.url)
     const id = searchParams.get('id')
+    deleteId = id
 
     if (!id) {
       return NextResponse.json(
@@ -261,6 +276,10 @@ export async function DELETE(request: NextRequest) {
     })
   } catch (error) {
     console.error('API Error:', error)
+    await logSystemError('api/materials', error, {
+      method: 'DELETE',
+      id: deleteId ?? undefined,
+    })
     return NextResponse.json(
       { success: false, error: 'Failed to delete material' },
       { status: 500 }
