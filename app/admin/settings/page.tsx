@@ -29,8 +29,9 @@ const GEMINI_MODELS = [
 ]
 
 const CLAUDE_MODELS = [
-  { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku (самый дешевый)' },
+  { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4 (2025)' },
   { value: 'claude-3-5-sonnet-20240620', label: 'Claude 3.5 Sonnet (баланс)' },
+  { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku (самый дешевый)' },
 ]
 
 export default function SettingsPage() {
@@ -78,7 +79,7 @@ export default function SettingsPage() {
     claudeApiKey: '',
     aiProvider: 'gemini',
     geminiModel: 'gemini-2.5-flash',
-    claudeModel: 'claude-3-haiku-20240307',
+    claudeModel: 'claude-sonnet-4-20250514',
     analysisPrompt: defaultAnalysisPrompt,
     summaryPrompt: defaultSummaryPrompt,
   })
@@ -100,7 +101,7 @@ export default function SettingsPage() {
           claudeApiKey: result.data.claudeApiKey || '',
           aiProvider: result.data.aiProvider || 'gemini',
           geminiModel: result.data.geminiModel || 'gemini-2.5-flash',
-          claudeModel: result.data.claudeModel || 'claude-3-haiku-20240307',
+          claudeModel: result.data.claudeModel || 'claude-sonnet-4-20250514',
           analysisPrompt: result.data.analysisPrompt || defaultAnalysisPrompt,
           summaryPrompt: result.data.summaryPrompt || defaultSummaryPrompt,
         })
