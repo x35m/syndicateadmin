@@ -1,6 +1,6 @@
 'use client'
 
-import { ChangeEvent, useEffect, useMemo, useState, useCallback } from 'react'
+import { ChangeEvent, useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { Material, Category, Country, City } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -49,6 +49,10 @@ import {
   X,
   ChevronDown,
   Loader2,
+  AlertTriangle,
+  StopCircle,
+  CheckCircle2,
+  PauseCircle,
 } from 'lucide-react'
 import { AdminHeader } from '@/components/admin-header'
 import { toast } from 'sonner'
@@ -79,6 +83,42 @@ const initialMaterialFilters = {
   countries: [] as number[],
   cities: [] as number[],
   feeds: [] as string[],
+}
+
+const bulkActionMeta: Record<Exclude<BulkAction, null>, { label: string; successMessage: string }> = {
+  'generate-summary': {
+    label: 'Генерация саммари',
+    successMessage: 'Генерация завершена успешно',
+  },
+  published: {
+    label: 'Публикация',
+    successMessage: 'Публикация завершена успешно',
+  },
+  archived: {
+    label: 'Архивирование',
+    successMessage: 'Архивирование завершено',
+  },
+  delete: {
+    label: 'Удаление',
+    successMessage: 'Удаление завершено',
+  },
+}
+
+type BulkProgressState = {
+  action: Exclude<BulkAction, null>
+  label: string
+  total: number
+  completed: number
+  success: number
+  failed: number
+  running: boolean
+  stopRequested: boolean
+  message: string
+  errors: Array<{
+    id: string
+    title: string
+    message: string
+  }>
 }
 
 type MaterialFiltersState = typeof initialMaterialFilters
@@ -194,14 +234,14 @@ export default function MaterialsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [showFullContent, setShowFullContent] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkProgress, setBulkProgress] = useState<BulkProgressState | null>(null)
+  const bulkStopRequestedRef = useRef(false)
   const [pendingAction, setPendingAction] = useState<BulkAction>(null)
-  const [bulkActionLoading, setBulkActionLoading] = useState(false)
   const [stats, setStats] = useState<MaterialsStats>({ total: 0, new: 0, processed: 0, published: 0, archived: 0 })
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
   const [totalPages, setTotalPages] = useState(1)
   const [total, setTotal] = useState(0)
-  const [generatingSummary, setGeneratingSummary] = useState<Set<string>>(new Set())
   const [taxonomy, setTaxonomy] = useState<{
     categories: Category[]
     countries: CountryWithCities[]
@@ -515,6 +555,10 @@ export default function MaterialsPage() {
   }
 
   const handleBulkActionClick = (action: BulkAction) => {
+    if (bulkProgress?.running) {
+      toast.info('Дождитесь завершения текущего процесса')
+      return
+    }
     if (selectedIds.size === 0) {
       toast.warning('Выберите материалы для обработки')
       return
@@ -522,136 +566,288 @@ export default function MaterialsPage() {
     setPendingAction(action)
   }
 
-  const executeBulkAction = async () => {
+  const handleStopBulkAction = () => {
+    if (!bulkProgress || !bulkProgress.running || bulkProgress.stopRequested) {
+      return
+    }
+    bulkStopRequestedRef.current = true
+    setBulkProgress((prev) =>
+      prev
+        ? {
+            ...prev,
+            stopRequested: true,
+            message: 'Остановка запрошена. Завершаем текущий элемент...'
+          }
+        : prev
+    )
+  }
+
+  const handleCloseBulkProgress = () => {
+    if (!bulkProgress) return
+    if (bulkProgress.running && !bulkProgress.stopRequested) return
+    setBulkProgress(null)
+    setSelectedIds(new Set())
+  }
+
+  const executeBulkAction = useCallback(async () => {
     if (!pendingAction) return
 
     const action = pendingAction
     const idsArray = Array.from(selectedIds)
 
-    setBulkActionLoading(true)
+    if (idsArray.length === 0) {
+      setPendingAction(null)
+      toast.warning('Нет выбранных материалов для обработки')
+      return
+    }
+
+    setPendingAction(null)
+
+    const meta = bulkActionMeta[action]
+    setBulkProgress({
+      action,
+      label: meta.label,
+      total: idsArray.length,
+      completed: 0,
+      success: 0,
+      failed: 0,
+      running: true,
+      stopRequested: false,
+      message: 'Запуск...',
+      errors: [],
+    })
+    bulkStopRequestedRef.current = false
+
+    const materialsById = new Map(materials.map((item) => [item.id, item]))
+    const errors: BulkProgressState['errors'] = []
+    let successCount = 0
+    let failedCount = 0
+    let completedCount = 0
+
+    const updateProgress = (partial: Partial<BulkProgressState>) => {
+      setBulkProgress((prev) => (prev ? { ...prev, ...partial } : prev))
+    }
+
+    const updateMetricsMessage = (message: string) => {
+      updateProgress({
+        completed: completedCount,
+        success: successCount,
+        failed: failedCount,
+        message,
+      })
+    }
+
+    const processPatch = async (id: string, payload: { status?: Material['status']; published?: boolean }) => {
+      await patchMaterial(id, payload)
+    }
+
     try {
       if (action === 'generate-summary') {
-        // Генерация саммари для выбранных материалов
-        let successCount = 0
-        let errorCount = 0
-        let firstError = ''
-        
         for (const id of idsArray) {
-          setGeneratingSummary(prev => new Set(prev).add(id))
-          
+          if (bulkStopRequestedRef.current) {
+            updateProgress({
+              message: 'Остановка запрошена. Завершаем процесс...',
+            })
+            break
+          }
+
+          const material = materialsById.get(id)
+          updateMetricsMessage(`Генерация саммари: ${material?.title ?? id}`)
+
           try {
             const response = await fetch('/api/materials/generate-summary', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ materialId: id }),
             })
-            
+
             const result = await response.json()
-            
-            if (result.success) {
-              successCount++
-            } else {
-              errorCount++
-              if (!firstError) {
-                firstError = result.error
-              }
-              console.error(`Failed to generate summary for ${id}:`, result.error)
+
+            if (!response.ok || !result.success) {
+              throw new Error(result.error || 'Не удалось сгенерировать саммари')
             }
-          } catch (err) {
-            errorCount++
-            if (!firstError) {
-              firstError = err instanceof Error ? err.message : 'Неизвестная ошибка'
-            }
-            console.error(`Error generating summary for ${id}:`, err)
-          } finally {
-            setGeneratingSummary(prev => {
-              const newSet = new Set(prev)
-              newSet.delete(id)
-              return newSet
+
+            successCount++
+          } catch (error: any) {
+            failedCount++
+            errors.push({
+              id,
+              title: materialsById.get(id)?.title ?? id,
+              message: error instanceof Error ? error.message : String(error),
             })
           }
-        }
-        
-        await fetchMaterials(filter)
-        await fetchTaxonomy()
-        setSelectedIds(new Set())
-        
-        if (errorCount === 0) {
-          toast.success(`Саммари успешно сгенерировано для ${successCount} материал(ов)`)
-        } else if (successCount === 0) {
-          toast.error(`Ошибка: ${firstError}`)
-        } else {
-          toast.warning(`Успешно: ${successCount}, Ошибки: ${errorCount}. ${firstError}`)
-        }
-      } else {
-        let affectedCount = idsArray.length
 
-          if (action === 'delete') {
-          for (const id of idsArray) {
-            await fetch(`/api/materials?id=${id}`, {
+          completedCount++
+          updateMetricsMessage(`Обработано ${completedCount}/${idsArray.length}`)
+        }
+
+        if (successCount > 0) {
+          await fetchTaxonomy()
+        }
+      } else if (action === 'delete') {
+        for (const id of idsArray) {
+          if (bulkStopRequestedRef.current) {
+            updateProgress({
+              message: 'Остановка запрошена. Завершаем процесс...',
+            })
+            break
+          }
+
+          const material = materialsById.get(id)
+          updateMetricsMessage(`Удаление: ${material?.title ?? id}`)
+
+          try {
+            const response = await fetch(`/api/materials?id=${id}`, {
               method: 'DELETE',
             })
-          }
-        } else if (action === 'published') {
-          const materialsById = new Map(materials.map((item) => [item.id, item]))
-          const skipped: string[] = []
-          let updatedCount = 0
-
-          for (const id of idsArray) {
-            const material = materialsById.get(id)
-            if (!material) continue
-            if (!material.summary || material.summary.trim().length === 0) {
-              skipped.push(material.title)
-              continue
+            if (!response.ok) {
+              const result = await response.json().catch(() => null)
+              throw new Error(result?.error || 'Не удалось удалить материал')
             }
-
-            await patchMaterial(id, {
-              published: true,
-            })
-            updatedCount++
-          }
-
-          if (skipped.length > 0) {
-            toast.warning(
-              `Пропущено ${skipped.length} материал(ов) без саммари`
-            )
-          }
-
-          if (updatedCount === 0) {
-            toast.error('Нет материалов с саммари для публикации')
-          }
-
-          affectedCount = updatedCount
-        } else if (action === 'archived') {
-          for (const id of idsArray) {
-            await patchMaterial(id, {
-              status: 'archived',
-              published: false,
+            successCount++
+          } catch (error: any) {
+            failedCount++
+            errors.push({
+              id,
+              title: material?.title ?? id,
+              message: error instanceof Error ? error.message : String(error),
             })
           }
-        }
 
-        await fetchMaterials(filter, currentPage)
-        setSelectedIds(new Set())
-        
-        const actionNames = {
-          published: 'опубликовано',
-          archived: 'архивировано',
-          delete: 'удалено',
+          completedCount++
+          updateMetricsMessage(`Обработано ${completedCount}/${idsArray.length}`)
         }
-        
-        toast.success(
-          `Успешно ${actionNames[action as keyof typeof actionNames]} ${affectedCount} материал(ов)`
-        )
+      } else if (action === 'archived') {
+        for (const id of idsArray) {
+          if (bulkStopRequestedRef.current) {
+            updateProgress({
+              message: 'Остановка запрошена. Завершаем процесс...',
+            })
+            break
+          }
+
+          const material = materialsById.get(id)
+          updateMetricsMessage(`Архивирование: ${material?.title ?? id}`)
+
+          try {
+            await processPatch(id, { status: 'archived', published: false })
+            successCount++
+          } catch (error: any) {
+            failedCount++
+            errors.push({
+              id,
+              title: material?.title ?? id,
+              message: error instanceof Error ? error.message : String(error),
+            })
+          }
+
+          completedCount++
+          updateMetricsMessage(`Обработано ${completedCount}/${idsArray.length}`)
+        }
+      } else if (action === 'published') {
+        for (const id of idsArray) {
+          if (bulkStopRequestedRef.current) {
+            updateProgress({
+              message: 'Остановка запрошена. Завершаем процесс...',
+            })
+            break
+          }
+
+          const material = materialsById.get(id)
+          updateMetricsMessage(`Публикация: ${material?.title ?? id}`)
+
+          if (!material) {
+            failedCount++
+            errors.push({
+              id,
+              title: id,
+              message: 'Материал не найден в текущем списке',
+            })
+            completedCount++
+            updateMetricsMessage(`Обработано ${completedCount}/${idsArray.length}`)
+            continue
+          }
+
+          if (!material.summary || material.summary.trim().length === 0) {
+            failedCount++
+            errors.push({
+              id,
+              title: material.title,
+              message: 'У материала отсутствует саммари, публикация невозможна',
+            })
+            completedCount++
+            updateMetricsMessage(`Обработано ${completedCount}/${idsArray.length}`)
+            continue
+          }
+
+          try {
+            await processPatch(id, { published: true })
+            successCount++
+          } catch (error: any) {
+            failedCount++
+            errors.push({
+              id,
+              title: material.title,
+              message: error instanceof Error ? error.message : String(error),
+            })
+          }
+
+          completedCount++
+          updateMetricsMessage(`Обработано ${completedCount}/${idsArray.length}`)
+        }
       }
-    } catch (error) {
-      console.error('Error performing bulk action:', error)
-      toast.error('Ошибка при выполнении действия')
+    } catch (error: any) {
+      errors.push({
+        id: 'system',
+        title: 'Системная ошибка',
+        message: error instanceof Error ? error.message : String(error),
+      })
     } finally {
-      setBulkActionLoading(false)
-      setPendingAction(null)
+      if (action === 'generate-summary') {
+        await fetchMaterials(filter, currentPage, { silent: true })
+      } else {
+        await fetchMaterials(filter, currentPage, { silent: true })
+      }
+      setSelectedIds(new Set())
+
+      const stopRequested = bulkStopRequestedRef.current
+      bulkStopRequestedRef.current = false
+
+      const total = idsArray.length
+      const finalCompleted = completedCount
+      const finalSuccess = successCount
+      const finalFailed = failedCount
+
+      let finalMessage = ''
+      if (stopRequested && finalCompleted < total) {
+        finalMessage = `Процесс остановлен пользователем. Обработано ${finalCompleted} из ${total}.`
+      } else if (finalFailed === 0) {
+        finalMessage = `${meta.successMessage}. Обработано ${finalSuccess} из ${total}.`
+      } else if (finalSuccess === 0) {
+        finalMessage = `Не удалось выполнить действие. Ошибок: ${finalFailed}.`
+      } else {
+        finalMessage = `Выполнено с ошибками: успешно ${finalSuccess}, ошибок ${finalFailed}.`
+      }
+
+      updateProgress({
+        running: false,
+        stopRequested: stopRequested,
+        completed: finalCompleted,
+        success: finalSuccess,
+        failed: finalFailed,
+        message: finalMessage,
+        errors,
+      })
+
+      if (stopRequested && finalCompleted < total) {
+        toast(finalMessage)
+      } else if (finalFailed === 0) {
+        toast.success(finalMessage)
+      } else {
+        toast.warning(finalMessage)
+      }
     }
-  }
+  }, [pendingAction, selectedIds, materials, filter, currentPage, fetchMaterials, fetchTaxonomy, patchMaterial])
 
   const handleFilterChange = async (value: string) => {
     setFilter(value)
@@ -689,6 +885,7 @@ export default function MaterialsPage() {
   }
 
   const toggleSelectAll = () => {
+    if (bulkProgress?.running) return
     if (selectedIds.size === paginatedMaterials.length && paginatedMaterials.length > 0) {
       // Deselect all on current page
       const newSelected = new Set(selectedIds)
@@ -703,6 +900,7 @@ export default function MaterialsPage() {
   }
 
   const toggleSelect = (id: string) => {
+    if (bulkProgress?.running) return
     const newSelected = new Set(selectedIds)
     if (newSelected.has(id)) {
       newSelected.delete(id)
@@ -1104,59 +1302,145 @@ export default function MaterialsPage() {
           </div>
 
           {/* Floating Bulk Actions Panel */}
-          {selectedIds.size > 0 && (
-            <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-4 fade-in duration-300">
+          {bulkProgress ? (
+            <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-4 fade-in duration-300 w-[min(90vw,600px)]">
               <Card className="border-primary shadow-2xl">
-                <CardContent className="py-4 px-6">
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm font-medium">
-                      Выбрано: <span className="text-primary font-bold">{selectedIds.size}</span> материал(ов)
-                    </span>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="default"
-                        onClick={() => handleBulkActionClick('published')}
-                      >
-                        <CheckCircle className="mr-2 h-4 w-4" />
-                        Опубликовать
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => handleBulkActionClick('generate-summary')}
-                      >
-                        <Sparkles className="mr-2 h-4 w-4" />
-                        Саммари
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleBulkActionClick('archived')}
-                      >
-                        <Archive className="mr-2 h-4 w-4" />
-                        Архивировать
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => handleBulkActionClick('delete')}
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Удалить
-                      </Button>
+                <CardContent className="py-4 px-6 space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold">{bulkProgress.label}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {bulkProgress.message}
+                      </p>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Выполнено {bulkProgress.completed} из {bulkProgress.total}. Успешно {bulkProgress.success}, ошибок {bulkProgress.failed}.
+                      </p>
                     </div>
+                    <div className="flex items-center justify-center rounded-full border bg-background p-2">
+                      {bulkProgress.running ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                      ) : bulkProgress.failed > 0 ? (
+                        <AlertTriangle className="h-4 w-4 text-amber-500" />
+                      ) : (
+                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="h-2 w-full rounded-full bg-muted">
+                    <div
+                      className="h-2 rounded-full bg-primary transition-all"
+                      style={{
+                        width: `${bulkProgress.total > 0 ? Math.min(100, Math.round((bulkProgress.completed / bulkProgress.total) * 100)) : 0}%`,
+                      }}
+                    />
+                  </div>
+
+                  {bulkProgress.errors.length > 0 && (
+                    <div className="max-h-32 overflow-y-auto rounded-md border border-border/50 bg-muted/30 p-3 text-xs">
+                      <p className="mb-2 font-semibold text-foreground">Ошибки:</p>
+                      <div className="space-y-2">
+                        {bulkProgress.errors.map((error) => (
+                          <div key={`${error.id}-${error.message}`} className="space-y-1">
+                            <p className="font-medium text-foreground break-words">{error.title}</p>
+                            <p className="text-muted-foreground break-words">{error.message}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleStopBulkAction}
+                      disabled={!bulkProgress.running || bulkProgress.stopRequested}
+                      className="flex items-center gap-2"
+                    >
+                      {bulkProgress.stopRequested ? (
+                        <>
+                          <PauseCircle className="h-4 w-4" />
+                          Остановка...
+                        </>
+                      ) : bulkProgress.running ? (
+                        <>
+                          <StopCircle className="h-4 w-4" />
+                          Остановить
+                        </>
+                      ) : (
+                        <>
+                          <StopCircle className="h-4 w-4" />
+                          Остановлено
+                        </>
+                      )}
+                    </Button>
                     <Button
                       size="sm"
-                      variant="ghost"
-                      onClick={() => setSelectedIds(new Set())}
+                      onClick={handleCloseBulkProgress}
+                      disabled={bulkProgress.running}
                     >
-                      Отменить
+                      Закрыть
                     </Button>
                   </div>
                 </CardContent>
               </Card>
             </div>
+          ) : (
+            selectedIds.size > 0 && (
+              <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-4 fade-in duration-300">
+                <Card className="border-primary shadow-2xl">
+                  <CardContent className="py-4 px-6">
+                    <div className="flex items-center gap-4">
+                      <span className="text-sm font-medium">
+                        Выбрано: <span className="text-primary font-bold">{selectedIds.size}</span> материал(ов)
+                      </span>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="default"
+                          onClick={() => handleBulkActionClick('published')}
+                        >
+                          <CheckCircle className="mr-2 h-4 w-4" />
+                          Опубликовать
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => handleBulkActionClick('generate-summary')}
+                        >
+                          <Sparkles className="mr-2 h-4 w-4" />
+                          Саммари
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleBulkActionClick('archived')}
+                        >
+                          <Archive className="mr-2 h-4 w-4" />
+                          Архивировать
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => handleBulkActionClick('delete')}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Удалить
+                        </Button>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setSelectedIds(new Set())}
+                      >
+                        Отменить
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )
           )}
 
           {/* Materials Table */}
@@ -1348,6 +1632,7 @@ export default function MaterialsPage() {
                         <Checkbox
                           checked={paginatedMaterials.length > 0 && paginatedMaterials.every((m: Material) => selectedIds.has(m.id))}
                           onCheckedChange={toggleSelectAll}
+                          disabled={!!bulkProgress?.running}
                         />
                       </TableHead>
                       <TableHead className="w-20">Обложка</TableHead>
@@ -1359,64 +1644,99 @@ export default function MaterialsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {paginatedMaterials.map((material) => (
-                      <TableRow key={material.id} className="cursor-pointer hover:bg-accent/50">
-                        <TableCell onClick={(e) => e.stopPropagation()}>
-                          <Checkbox
-                            checked={selectedIds.has(material.id)}
-                            onCheckedChange={() => toggleSelect(material.id)}
-                          />
-                        </TableCell>
-                        <TableCell onClick={() => openMaterialDialog(material)}>
-                          {material.thumbnail ? (
-                            <img 
-                              src={material.thumbnail} 
-                              alt={material.title}
-                              className="w-16 h-16 object-cover rounded"
-                              onError={(e) => {
-                                e.currentTarget.style.display = 'none'
-                              }}
+                    {bulkProgress?.running ? (
+                      Array.from({
+                        length: Math.min(
+                          paginatedMaterials.length || pageSize,
+                          pageSize
+                        ),
+                      }).map((_, index) => (
+                        <TableRow key={`bulk-skeleton-${index}`}>
+                          <TableCell>
+                            <Skeleton className="h-4 w-4 rounded" />
+                          </TableCell>
+                          <TableCell>
+                            <Skeleton className="h-16 w-16 rounded" />
+                          </TableCell>
+                          <TableCell>
+                            <Skeleton className="h-4 w-48" />
+                            <Skeleton className="mt-2 h-4 w-64" />
+                          </TableCell>
+                          <TableCell>
+                            <Skeleton className="h-4 w-40" />
+                          </TableCell>
+                          <TableCell>
+                            <Skeleton className="h-4 w-28" />
+                          </TableCell>
+                          <TableCell>
+                            <Skeleton className="h-4 w-24" />
+                          </TableCell>
+                          <TableCell>
+                            <Skeleton className="h-4 w-24" />
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      paginatedMaterials.map((material) => (
+                        <TableRow key={material.id} className="cursor-pointer hover:bg-accent/50">
+                          <TableCell onClick={(e) => e.stopPropagation()}>
+                            <Checkbox
+                              checked={selectedIds.has(material.id)}
+                              onCheckedChange={() => toggleSelect(material.id)}
+                              disabled={!!bulkProgress?.running}
                             />
-                          ) : (
-                            <div className="w-16 h-16 bg-muted rounded flex items-center justify-center text-xs text-muted-foreground">
-                              Нет фото
+                          </TableCell>
+                          <TableCell onClick={() => !bulkProgress?.running && openMaterialDialog(material)}>
+                            {material.thumbnail ? (
+                              <img 
+                                src={material.thumbnail} 
+                                alt={material.title}
+                                className="w-16 h-16 object-cover rounded"
+                                onError={(e) => {
+                                  e.currentTarget.style.display = 'none'
+                                }}
+                              />
+                            ) : (
+                              <div className="w-16 h-16 bg-muted rounded flex items-center justify-center text-xs text-muted-foreground">
+                                Нет фото
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="font-medium" onClick={() => !bulkProgress?.running && openMaterialDialog(material)}>
+                            <div className="line-clamp-3 leading-snug">
+                              {material.title}
                             </div>
-                          )}
-                        </TableCell>
-                        <TableCell className="font-medium" onClick={() => openMaterialDialog(material)}>
-                          <div className="line-clamp-3 leading-snug">
-                            {material.title}
-                          </div>
-                        </TableCell>
-                        <TableCell onClick={() => openMaterialDialog(material)}>
-                          {material.categories && material.categories.length > 0 ? (
-                            <div className="flex max-w-[220px] flex-wrap gap-1">
-                              {material.categories.slice(0, 3).map((category) => (
-                                <Badge key={`${material.id}-category-${category.id}`} variant="outline" className="text-xs font-normal">
-                                  {category.name}
-                                </Badge>
-                              ))}
-                              {material.categories.length > 3 && (
-                                <Badge variant="secondary" className="text-xs font-normal">
-                                  +{material.categories.length - 3}
-                                </Badge>
-                              )}
+                          </TableCell>
+                          <TableCell onClick={() => !bulkProgress?.running && openMaterialDialog(material)}>
+                            {material.categories && material.categories.length > 0 ? (
+                              <div className="flex max-w-[220px] flex-wrap gap-1">
+                                {material.categories.slice(0, 3).map((category) => (
+                                  <Badge key={`${material.id}-category-${category.id}`} variant="outline" className="text-xs font-normal">
+                                    {category.name}
+                                  </Badge>
+                                ))}
+                                {material.categories.length > 3 && (
+                                  <Badge variant="secondary" className="text-xs font-normal">
+                                    +{material.categories.length - 3}
+                                  </Badge>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell onClick={() => !bulkProgress?.running && openMaterialDialog(material)}>
+                            <div className="truncate max-w-[200px]" title={material.feedName || material.source}>
+                              {material.feedName || material.source || '—'}
                             </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                        <TableCell onClick={() => openMaterialDialog(material)}>
-                          <div className="truncate max-w-[200px]" title={material.feedName || material.source}>
-                            {material.feedName || material.source || '—'}
-                          </div>
-                        </TableCell>
-                        <TableCell onClick={() => openMaterialDialog(material)}>{formatDate(material.createdAt)}</TableCell>
-                        <TableCell onClick={() => openMaterialDialog(material)}>
-                          {getStatusBadge(material.status)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                          </TableCell>
+                          <TableCell onClick={() => !bulkProgress?.running && openMaterialDialog(material)}>{formatDate(material.createdAt)}</TableCell>
+                          <TableCell onClick={() => !bulkProgress?.running && openMaterialDialog(material)}>
+                            {getStatusBadge(material.status)}
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
                   </TableBody>
                 </Table>
               )}
@@ -1517,17 +1837,10 @@ export default function MaterialsPage() {
                 <AlertDialogCancel>Отмена</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={executeBulkAction}
-                  disabled={bulkActionLoading}
-                  className={`${dialogContent?.variant === 'destructive' ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : ''} flex items-center`}
+                  disabled={bulkProgress?.running === true}
+                  className={`${dialogContent?.variant === 'destructive' ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : ''}`}
                 >
-                  {bulkActionLoading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      {pendingAction === 'delete' ? 'Удаление...' : 'Выполнение...'}
-                    </>
-                  ) : (
-                    dialogContent?.actionText
-                  )}
+                  {dialogContent?.actionText}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

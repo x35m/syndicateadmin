@@ -1,5 +1,5 @@
 import { Pool } from 'pg'
-import { Material, Category, Country, City } from './types'
+import { Material, Category, Country, City, CategorizationLog } from './types'
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || process.env.DATABASE_PUBLIC_URL,
@@ -1078,6 +1078,62 @@ export class DatabaseService {
         data.metadata ? JSON.stringify(data.metadata) : null,
       ]
     )
+  }
+
+  async getCategorizationLogs(limit = 100): Promise<CategorizationLog[]> {
+    const result = await pool.query(
+      `
+      SELECT 
+        cl.id,
+        cl.material_id AS "materialId",
+        cl.supercategory,
+        cl.predicted_category AS "predictedCategory",
+        cl.validation_category AS "validationCategory",
+        cl.confidence,
+        cl.validation_confidence AS "validationConfidence",
+        cl.reasoning,
+        cl.metadata,
+        cl.created_at AS "createdAt",
+        m.title
+      FROM categorization_logs cl
+      LEFT JOIN materials m ON m.id = cl.material_id
+      ORDER BY cl.created_at DESC
+      LIMIT $1
+      `,
+      [limit]
+    )
+
+    return result.rows.map((row) => {
+      let reasoning: Record<string, unknown> | null = null
+      let metadata: Record<string, unknown> | null = null
+
+      try {
+        reasoning = row.reasoning ? JSON.parse(row.reasoning) : null
+      } catch (error) {
+        console.warn('Failed to parse categorization log reasoning:', error)
+      }
+
+      try {
+        metadata = row.metadata ? JSON.parse(row.metadata) : null
+      } catch (error) {
+        console.warn('Failed to parse categorization log metadata:', error)
+      }
+
+      return {
+        id: row.id,
+        materialId: row.materialId,
+        title: row.title,
+        supercategory: row.supercategory,
+        predictedCategory: row.predictedCategory,
+        validationCategory: row.validationCategory,
+        confidence: row.confidence !== null ? Number(row.confidence) : null,
+        validationConfidence:
+          row.validationConfidence !== null ? Number(row.validationConfidence) : null,
+        reasoning,
+        metadata,
+        createdAt: row.createdAt,
+      }
+    })
   }
 }
 

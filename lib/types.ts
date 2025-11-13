@@ -46,3 +46,17 @@ export interface City {
   name: string
   countryId: number
 }
+
+export interface CategorizationLog {
+  id: number
+  materialId: string
+  title?: string | null
+  supercategory?: string | null
+  predictedCategory?: string | null
+  validationCategory?: string | null
+  confidence?: number | null
+  validationConfidence?: number | null
+  reasoning?: Record<string, unknown> | null
+  metadata?: Record<string, unknown> | null
+  createdAt: string
+}
