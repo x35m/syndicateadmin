@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json()
-    const { id, status, processed, published } = body
+    const { id, status, processed, published, summary, metaDescription } = body
 
     if (!id) {
       return NextResponse.json(
@@ -96,6 +96,10 @@ export async function PATCH(request: NextRequest) {
       processed?: boolean
       published?: boolean
     } = {}
+    const summaryUpdates: {
+      summary?: string
+      metaDescription?: string
+    } = {}
 
     if (typeof status === 'string' && status.trim().length > 0) {
       updates.status = status.trim()
@@ -106,15 +110,27 @@ export async function PATCH(request: NextRequest) {
     if (typeof published === 'boolean') {
       updates.published = published
     }
+    if (typeof summary === 'string') {
+      summaryUpdates.summary = summary
+    }
+    if (typeof metaDescription === 'string') {
+      summaryUpdates.metaDescription = metaDescription
+    }
 
-    if (Object.keys(updates).length === 0) {
+    if (Object.keys(updates).length === 0 && Object.keys(summaryUpdates).length === 0) {
       return NextResponse.json(
         { success: false, error: 'No updates were provided' },
         { status: 400 }
       )
     }
 
-    await db.updateMaterialAttributes(id, updates)
+    if (Object.keys(updates).length > 0) {
+      await db.updateMaterialAttributes(id, updates)
+    }
+
+    if (Object.keys(summaryUpdates).length > 0) {
+      await db.updateMaterialSummary(id, summaryUpdates)
+    }
 
     return NextResponse.json({
       success: true,
