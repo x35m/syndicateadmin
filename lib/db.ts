@@ -130,6 +130,21 @@ export class DatabaseService {
       `)
 
       await client.query(`
+        CREATE TABLE IF NOT EXISTS categorization_logs (
+          id SERIAL PRIMARY KEY,
+          material_id VARCHAR(255) NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+          supercategory TEXT,
+          predicted_category TEXT,
+          validation_category TEXT,
+          confidence NUMERIC,
+          validation_confidence NUMERIC,
+          reasoning JSONB,
+          metadata JSONB,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `)
+
+      await client.query(`
         CREATE TABLE IF NOT EXISTS material_categories (
           material_id VARCHAR(255) NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
           category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
@@ -997,6 +1012,72 @@ export class DatabaseService {
       [id]
     )
     return result.rows[0]?.summary || null
+  }
+
+  async getCategoryExamples(limit = 15): Promise<
+    Array<{
+      id: string
+      title: string
+      summary: string | null
+      content: string | null
+      category: string
+    }>
+  > {
+    const result = await pool.query(
+      `
+      SELECT 
+        m.id,
+        m.title,
+        m.summary,
+        m.content,
+        c.name AS category
+      FROM materials m
+      JOIN material_categories mc ON mc.material_id = m.id
+      JOIN categories c ON c.id = mc.category_id
+      WHERE m.summary IS NOT NULL
+      ORDER BY m.created_at DESC
+      LIMIT $1
+      `,
+      [limit]
+    )
+
+    return result.rows
+  }
+
+  async createCategorizationLog(data: {
+    materialId: string
+    supercategory?: string
+    predictedCategory?: string
+    validationCategory?: string
+    confidence?: number
+    validationConfidence?: number
+    reasoning?: Record<string, unknown>
+    metadata?: Record<string, unknown>
+  }): Promise<void> {
+    await pool.query(
+      `
+      INSERT INTO categorization_logs (
+        material_id,
+        supercategory,
+        predicted_category,
+        validation_category,
+        confidence,
+        validation_confidence,
+        reasoning,
+        metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `,
+      [
+        data.materialId,
+        data.supercategory ?? null,
+        data.predictedCategory ?? null,
+        data.validationCategory ?? null,
+        data.confidence ?? null,
+        data.validationConfidence ?? null,
+        data.reasoning ? JSON.stringify(data.reasoning) : null,
+        data.metadata ? JSON.stringify(data.metadata) : null,
+      ]
+    )
   }
 }
 

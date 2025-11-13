@@ -90,6 +90,7 @@ interface FilterMultiSelectProps<T extends string | number> {
   onChange: (values: T[]) => void
   disabled?: boolean
   fullWidth?: boolean
+  maxSelected?: number
 }
 
 function FilterMultiSelect<T extends string | number>({
@@ -99,13 +100,27 @@ function FilterMultiSelect<T extends string | number>({
   onChange,
   disabled,
   fullWidth,
+  maxSelected,
 }: FilterMultiSelectProps<T>) {
   const [searchTerm, setSearchTerm] = useState('')
   const toggleValue = (value: T) => {
     if (selected.includes(value)) {
       onChange(selected.filter((item) => item !== value))
     } else {
-      onChange([...selected, value])
+      if (maxSelected && maxSelected > 0) {
+        if (maxSelected === 1) {
+          onChange([value])
+        } else {
+          const nextValues = [...selected, value]
+          const overflow = nextValues.length - maxSelected
+          if (overflow > 0) {
+            nextValues.splice(0, overflow)
+          }
+          onChange(nextValues)
+        }
+      } else {
+        onChange([...selected, value])
+      }
     }
   }
 
@@ -571,7 +586,7 @@ export default function MaterialsPage() {
       } else {
         let affectedCount = idsArray.length
 
-        if (action === 'delete') {
+          if (action === 'delete') {
           for (const id of idsArray) {
             await fetch(`/api/materials?id=${id}`, {
               method: 'DELETE',
@@ -649,7 +664,7 @@ export default function MaterialsPage() {
   const openMaterialDialog = (material: Material) => {
     setSelectedMaterial(material)
     setPendingTaxonomy({
-      categoryIds: material.categories?.map((item) => item.id) ?? [],
+      categoryIds: material.categories?.length ? [material.categories[0].id] : [],
       countryIds: material.countries?.map((item) => item.id) ?? [],
       cityIds: material.cities?.map((item) => item.id) ?? [],
     })
@@ -790,7 +805,7 @@ export default function MaterialsPage() {
         case 'category':
           setPendingTaxonomy((prev) => ({
             ...prev,
-            categoryIds: Array.from(new Set([...prev.categoryIds, result.data.id])),
+            categoryIds: [result.data.id],
           }))
           break
         case 'country':
@@ -834,7 +849,7 @@ export default function MaterialsPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             materialId: selectedMaterial.id,
-            categoryIds: pendingTaxonomy.categoryIds,
+            categoryIds: pendingTaxonomy.categoryIds.slice(0, 1),
             countryIds: pendingTaxonomy.countryIds,
             cityIds: pendingTaxonomy.cityIds,
           }),
@@ -857,7 +872,9 @@ export default function MaterialsPage() {
           metaDescription: pendingMetaDescription,
         })
         setPendingTaxonomy({
-          categoryIds: updatedMaterial.categories?.map((item: Category) => item.id) ?? [],
+          categoryIds: updatedMaterial.categories?.length
+            ? [updatedMaterial.categories[0].id]
+            : [],
           countryIds: updatedMaterial.countries?.map((item: Country) => item.id) ?? [],
           cityIds: updatedMaterial.cities?.map((item: City) => item.id) ?? [],
         })
@@ -907,7 +924,9 @@ export default function MaterialsPage() {
         
         // Обновляем pendingTaxonomy с новыми значениями
         setPendingTaxonomy({
-          categoryIds: updatedMaterial.categories?.map((item: Category) => item.id) ?? [],
+          categoryIds: updatedMaterial.categories?.length
+            ? [updatedMaterial.categories[0].id]
+            : [],
           countryIds: updatedMaterial.countries?.map((item: Country) => item.id) ?? [],
           cityIds: updatedMaterial.cities?.map((item: City) => item.id) ?? [],
         })
@@ -940,7 +959,7 @@ export default function MaterialsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           materialId: selectedMaterial.id,
-          categoryIds: pendingTaxonomy.categoryIds,
+          categoryIds: pendingTaxonomy.categoryIds.slice(0, 1),
           countryIds: pendingTaxonomy.countryIds,
           cityIds: pendingTaxonomy.cityIds,
         }),
@@ -959,7 +978,7 @@ export default function MaterialsPage() {
       setPendingSummary(updated.summary ?? '')
       setPendingMetaDescription(updated.metaDescription ?? '')
       setPendingTaxonomy({
-        categoryIds: updated.categories?.map((item: Category) => item.id) ?? [],
+        categoryIds: updated.categories?.length ? [updated.categories[0].id] : [],
         countryIds: updated.countries?.map((item: Country) => item.id) ?? [],
         cityIds: updated.cities?.map((item: City) => item.id) ?? [],
       })
@@ -1684,6 +1703,7 @@ export default function MaterialsPage() {
                           }
                           disabled={taxonomy.categories.length === 0}
                           fullWidth
+                        maxSelected={1}
                         />
                         <Button
                           variant="ghost"

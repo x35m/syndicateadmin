@@ -98,6 +98,7 @@ async function callGemini(apiKey: string, model: string, prompt: string) {
 }
 
 const CLAUDE_MODEL_PREFERENCE = [
+  'claude-sonnet-4-20250514',
   'claude-3-5-sonnet-20240620',
   'claude-3-haiku-20240307',
 ]
@@ -106,7 +107,11 @@ async function callClaude(
   apiKey: string,
   model: string,
   systemPrompt: string,
-  userPrompt: string
+  userPrompt: string,
+  options?: {
+    maxTokens?: number
+    temperature?: number
+  }
 ) {
   const anthropic = new Anthropic({
     apiKey: apiKey,
@@ -129,7 +134,8 @@ async function callClaude(
     try {
       const message = await anthropic.messages.create({
         model: candidate,
-        max_tokens: 4096,
+        max_tokens: options?.maxTokens ?? 4096,
+        temperature: options?.temperature,
         system: systemPrompt || undefined,
         messages: [
           {
@@ -188,6 +194,46 @@ const normalizeName = (value?: string | null) =>
 const sanitizeString = (value: unknown) =>
   typeof value === 'string' ? value.trim() : ''
 
+const SUPER_CATEGORY_OPTIONS = [
+  'Внутренняя Украина',
+  'Международное',
+  'Общее',
+]
+
+const parseJsonWithFallback = (payload: string) => {
+  try {
+    return JSON.parse(payload)
+  } catch (firstError) {
+    let secondError: unknown = null
+    try {
+      return JSON5.parse(payload)
+    } catch (json5Error) {
+      secondError = json5Error
+      try {
+        const repaired = jsonrepair(payload)
+        return JSON.parse(repaired)
+      } catch (repairError) {
+        throw new Error(
+          `Failed to parse JSON. First error: ${(firstError as Error).message}. ` +
+            `JSON5 error: ${
+              secondError instanceof Error ? secondError.message : secondError
+            }. Repair error: ${
+              repairError instanceof Error ? repairError.message : repairError
+            }`
+        )
+      }
+    }
+  }
+}
+
+const clampConfidence = (value: unknown, fallback = 0.5) => {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  if (numeric < 0) return 0
+  if (numeric > 1) return 1
+  return numeric
+}
+
 const extractJsonFromText = (text: string): string | null => {
   if (!text) return null
   
@@ -231,6 +277,386 @@ const buildTaxonomyContext = (
   ].join('\n')
 }
 
+const buildNegativeExamples = (categories: Category[]): string => {
+  if (categories.length === 0) {
+    return 'Нет сохранённых категорий. Если создаёшь новую категорию, убедись, что она отличается от существующих и не дублирует темы других рубрик.'
+  }
+
+  return categories.slice(0, 12).map((category) => {
+    return [
+      `Категория "${category.name}":`,
+      '✅ ОТНОСИТСЯ: Материал, где эта тема является основной, и большинство ключевых фактов напрямую описывают именно её.',
+      '❌ НЕ ОТНОСИТСЯ: Если категория упомянута лишь вскользь или как фон, а основная тема относится к другой рубрике.',
+      '❌ НЕ ОТНОСИТСЯ: Если материал относится к другой специализации (например, военные действия, экономика, культура).',
+    ].join('\n')
+  }).join('\n\n')
+}
+
+const buildCategoryExamples = (
+  examples: Array<{
+    id: string
+    title: string
+    summary: string | null
+    content: string | null
+    category: string
+  }>
+): string => {
+  if (examples.length === 0) {
+    return 'Нет сохранённых примеров. Используй здравый смысл и чётко сопоставляй содержание статье с определённой категорией.'
+  }
+
+  return examples
+    .map((example) => {
+      const preview = sanitizeString(example.summary) || sanitizeString(example.content)?.slice(0, 220) || 'нет краткого описания'
+      return [
+        `Заголовок: ${example.title}`,
+        `Категория: ${example.category}`,
+        `Краткое описание: ${preview}`,
+      ].join('\n')
+    })
+    .join('\n\n')
+}
+
+type SupercategoryResult = {
+  supercategory: string | null
+  reasoning: string | null
+  confidence: number
+}
+
+type CategoryChainReasoning = {
+  step1_summary?: string
+  step2_ukrainian_context?: string
+  step3_keywords?: string[]
+  step4_category?: string
+  step5_reasoning?: string
+  confidence?: number
+}
+
+type ClassificationResult = {
+  category: string | null
+  confidence: number
+  reasoning: CategoryChainReasoning
+}
+
+const classifySupercategory = async (args: {
+  apiKey: string
+  model: string
+  articleText: string
+  materialTitle?: string
+}) => {
+  const { apiKey, model, articleText, materialTitle } = args
+
+  const systemPrompt = [
+    'Ты — аналитик новостного портала. Твоя задача — определить надкатегорию материала для дальнейшей точной классификации.',
+    'Возможные надкатегории:',
+    '- "Внутренняя Украина" — события внутри страны, управление, экономика, общество.',
+    '- "Международное" — внешняя политика, международные отношения, глобальные события, влияющие на Украину.',
+    '- "Общее" — материалы общего характера, которые не попадают в первые два типа (например, технологии, культура глобально).',
+    'Всегда возвращай JSON с ключами: supercategory, reasoning, confidence (0..1).',
+  ].join('\n')
+
+  const userPrompt = [
+    materialTitle ? `Заголовок: ${materialTitle}` : null,
+    'Текст статьи:',
+    articleText,
+    'Определи надкатегорию (только из списка).',
+    'Верни JSON формата:',
+    `{
+  "supercategory": "Внутренняя Украина | Международное | Общее",
+  "reasoning": "почему выбран этот вариант",
+  "confidence": 0.82
+}`,
+    'Только чистый JSON.',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+
+  const responseText = await callClaude(apiKey, model, systemPrompt, userPrompt, {
+    maxTokens: 512,
+    temperature: 0.2,
+  })
+
+  const jsonPayload = extractJsonFromText(responseText) ?? responseText
+  const parsed = parseJsonWithFallback(jsonPayload) as {
+    supercategory?: string
+    reasoning?: string
+    confidence?: number
+  }
+
+  const supercategory = sanitizeString(parsed.supercategory)
+  const normalized =
+    SUPER_CATEGORY_OPTIONS.find(
+      (option) => normalizeName(option) === normalizeName(supercategory)
+    ) ?? null
+
+  return {
+    supercategory: normalized,
+    reasoning: sanitizeString(parsed.reasoning),
+    confidence: clampConfidence(parsed.confidence, 0.6),
+  } as SupercategoryResult
+}
+
+const classifyExactCategory = async (args: {
+  apiKey: string
+  model: string
+  articleText: string
+  categories: Category[]
+  examples: Array<{
+    id: string
+    title: string
+    summary: string | null
+    content: string | null
+    category: string
+  }>
+  supercategory?: string | null
+  materialTitle?: string
+}) => {
+  const {
+    apiKey,
+    model,
+    articleText,
+    categories,
+    examples,
+    supercategory,
+    materialTitle,
+  } = args
+
+  const guidelines = buildNegativeExamples(categories)
+  const exampleBlock = buildCategoryExamples(examples)
+
+  const orderedCategories =
+    categories.length > 0
+      ? categories
+          .map((category) => category.name)
+          .sort((a, b) => a.localeCompare(b, 'ru'))
+      : ['(Категории не заданы — при необходимости предложи новую формулировку)']
+
+  const systemSections = [
+    'Ты — опытный редактор по классификации материалов.',
+    'Список доступных категорий (используй точное написание):',
+    orderedCategories.map((name) => `- ${name}`).join('\n'),
+    'Как отличать категории: ',
+    guidelines,
+    'Примеры из архива (ориентируйся на стиль и тематику):',
+    exampleBlock,
+    'Если нет точного соответствия, предложи новую категорию, но поясни, чем она отличается.',
+  ]
+
+  const systemPrompt = systemSections.filter(Boolean).join('\n\n')
+
+  const userPromptParts = [
+    materialTitle ? `Заголовок: ${materialTitle}` : null,
+    supercategory
+      ? `Определённая надкатегория: ${supercategory}. Убедись, что финальная категория совместима с этой надкатегорией.`
+      : 'Надкатегорию определить не удалось — выбери наиболее подходящую категорию.',
+    'Проанализируй статью и определи категорию. Используй пошаговый анализ.',
+    'СТАТЬЯ:',
+    articleText,
+    'ПОШАГОВЫЙ АНАЛИЗ:',
+    'Шаг 1: О чем статья одним предложением?',
+    'Шаг 2: Есть ли украинский контекст? (да/нет и почему)',
+    'Шаг 3: Какие ключевые слова присутствуют?',
+    'Шаг 4: К какой категории относится?',
+    'Шаг 5: Почему именно эта категория, а не другие похожие?',
+    'Верни JSON:',
+    `{
+  "step1_summary": "...",
+  "step2_ukrainian_context": "да/нет, потому что...",
+  "step3_keywords": ["слово1", "слово2"],
+  "step4_category": "Название категории",
+  "step5_reasoning": "Объяснение выбора и почему не другие категории",
+  "confidence": 0.95
+}`,
+    'Только чистый JSON без markdown.',
+  ]
+
+  const userPrompt = userPromptParts.filter(Boolean).join('\n\n')
+
+  const responseText = await callClaude(apiKey, model, systemPrompt, userPrompt, {
+    maxTokens: 1024,
+    temperature: 0.3,
+  })
+
+  const jsonPayload = extractJsonFromText(responseText) ?? responseText
+  const parsed = parseJsonWithFallback(jsonPayload) as CategoryChainReasoning
+
+  const categoryName = sanitizeString(parsed.step4_category)
+  const confidence = clampConfidence(parsed.confidence, 0.6)
+
+  return {
+    category: categoryName || null,
+    confidence,
+    reasoning: parsed,
+  } as ClassificationResult
+}
+
+const validateCategory = async (args: {
+  apiKey: string
+  model: string
+  articleText: string
+  proposedCategory: string | null
+  supercategory?: string | null
+  materialTitle?: string
+}) => {
+  const { apiKey, model, articleText, proposedCategory, supercategory, materialTitle } = args
+
+  const systemPrompt = [
+    'Ты — редактор, который перепроверяет корректность выбранной категории.',
+    'Если категория не подходит, предложи альтернативу и объясни расхождение.',
+  ].join('\n')
+
+  const userPrompt = [
+    materialTitle ? `Заголовок: ${materialTitle}` : null,
+    `Предложенная категория: ${proposedCategory || 'не указана'}`,
+    supercategory ? `Надкатегория: ${supercategory}` : null,
+    'ПРОЧИТАЙ СТАТЬЮ:',
+    articleText,
+    'Верни JSON:',
+    `{
+  "category": "Название категории или предыдущая, если согласен",
+  "confidence": 0.8,
+  "comment": "пояснение оценки"
+}`,
+    'Только чистый JSON.',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+
+  const responseText = await callClaude(apiKey, model, systemPrompt, userPrompt, {
+    maxTokens: 512,
+    temperature: 0.2,
+  })
+
+  const payload = extractJsonFromText(responseText) ?? responseText
+  const parsed = parseJsonWithFallback(payload) as {
+    category?: string
+    confidence?: number
+    comment?: string
+  }
+
+  return {
+    category: sanitizeString(parsed.category) || proposedCategory || null,
+    confidence: clampConfidence(parsed.confidence, 0.5),
+    comment: sanitizeString(parsed.comment),
+  }
+}
+
+const runCategoryClassification = async (args: {
+  materialId: string
+  articleText: string
+  materialTitle?: string
+  categories: Category[]
+  examples: Array<{
+    id: string
+    title: string
+    summary: string | null
+    content: string | null
+    category: string
+  }>
+  claudeApiKey?: string | null
+  claudeModel: string
+}) => {
+  const {
+    materialId,
+    articleText,
+    materialTitle,
+    categories,
+    examples,
+    claudeApiKey,
+    claudeModel,
+  } = args
+
+  if (!claudeApiKey) {
+    return null
+  }
+
+  try {
+    const supercategoryResult = await classifySupercategory({
+      apiKey: claudeApiKey,
+      model: claudeModel,
+      articleText,
+      materialTitle,
+    })
+
+    const exactResult = await classifyExactCategory({
+      apiKey: claudeApiKey,
+      model: claudeModel,
+      articleText,
+      categories,
+      examples,
+      supercategory: supercategoryResult.supercategory,
+      materialTitle,
+    })
+
+    let finalCategory = exactResult.category
+    let finalConfidence = exactResult.confidence
+    let validationCategory: string | null = null
+    let validationConfidence: number | undefined
+    let validationComment: string | undefined
+
+    if (exactResult.confidence < 0.75) {
+      const validation = await validateCategory({
+        apiKey: claudeApiKey,
+        model: claudeModel,
+        articleText,
+        proposedCategory: finalCategory,
+        supercategory: supercategoryResult.supercategory,
+        materialTitle,
+      })
+
+      validationCategory = validation.category
+      validationConfidence = validation.confidence
+      validationComment = validation.comment
+
+      if (
+        validation.category &&
+        normalizeName(validation.category) !== normalizeName(finalCategory || '')
+      ) {
+        finalCategory = validation.category
+        finalConfidence = Math.max(validation.confidence, finalConfidence * 0.9)
+      } else if (validation.confidence > finalConfidence) {
+        finalConfidence = validation.confidence
+      }
+    }
+
+    await db.createCategorizationLog({
+      materialId,
+      supercategory: supercategoryResult.supercategory ?? undefined,
+      predictedCategory: exactResult.category ?? undefined,
+      validationCategory: validationCategory ?? undefined,
+      confidence: exactResult.confidence,
+      validationConfidence,
+      reasoning: {
+        supercategory_reasoning: supercategoryResult.reasoning,
+        classification: exactResult.reasoning,
+        validation_comment: validationComment,
+      },
+      metadata: {
+        final_category: finalCategory,
+        final_confidence: finalConfidence,
+      },
+    })
+
+    return {
+      category: finalCategory,
+      confidence: finalConfidence,
+      reasoning: exactResult.reasoning,
+      supercategory: supercategoryResult.supercategory,
+    }
+  } catch (error) {
+    console.error('Advanced category classification failed:', error)
+    await db.createCategorizationLog({
+      materialId,
+      predictedCategory: null,
+      confidence: 0,
+      reasoning: {
+        error: error instanceof Error ? error.message : String(error),
+      },
+    })
+    return null
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json()
@@ -248,7 +674,7 @@ export async function POST(request: Request) {
     const geminiApiKey = settings['gemini_api_key']
     const claudeApiKey = settings['claude_api_key']
     const geminiModel = settings['gemini_model'] || 'gemini-2.5-flash'
-    const claudeModel = settings['claude_model'] || 'claude-3-haiku-20240307'
+    const claudeModel = settings['claude_model'] || 'claude-sonnet-4-20250514'
     const analysisPrompt = settings['analysis_prompt'] || DEFAULT_ANALYSIS_PROMPT
     const taxonomySystemPrompt = settings['taxonomy_system_prompt']
     const taxonomyFormatPrompt = settings['taxonomy_format_prompt']
@@ -301,7 +727,12 @@ export async function POST(request: Request) {
         contentToAnalyze.substring(0, MAX_CONTENT_LENGTH) + '...'
     }
     
-    const taxonomyData = (await db.getTaxonomy()) as {
+    const [taxonomyDataRaw, categoryExamples] = await Promise.all([
+      db.getTaxonomy(),
+      db.getCategoryExamples(15),
+    ])
+
+    const taxonomyData = taxonomyDataRaw as {
       categories: Category[]
       countries: Array<Country & { cities: City[] }>
     }
@@ -451,13 +882,23 @@ export async function POST(request: Request) {
       )
     }
 
+    const advancedCategoryResult = await runCategoryClassification({
+      materialId,
+      articleText: contentToAnalyze,
+      materialTitle: material.title,
+      categories: taxonomyData.categories,
+      examples: categoryExamples,
+      claudeApiKey,
+      claudeModel,
+    })
+
     const taxonomyResult = (parsedResponse.taxonomy ?? {}) as {
       categories?: string[] | null
       country?: string | null
       city?: string | null
     }
 
-    const hasCategories = Object.prototype.hasOwnProperty.call(
+    const hasCategoriesInResponse = Object.prototype.hasOwnProperty.call(
       taxonomyResult,
       'categories'
     )
@@ -565,6 +1006,20 @@ export async function POST(request: Request) {
       return enriched
     }
 
+    const rawCategoryNames: string[] = []
+
+    if (advancedCategoryResult?.category) {
+      rawCategoryNames.push(advancedCategoryResult.category)
+    } else if (hasCategoriesInResponse) {
+      if (Array.isArray(taxonomyResult.categories)) {
+        rawCategoryNames.push(...taxonomyResult.categories)
+      }
+    }
+
+    const categoryNames = rawCategoryNames
+      .map((name) => sanitizeString(name))
+      .filter((name) => name.length > 0)
+
     const taxonomyUpdatePayload: {
       categoryIds?: number[]
       countryIds?: number[]
@@ -574,7 +1029,7 @@ export async function POST(request: Request) {
     const categoryIds: number[] = []
     const countryIds: number[] = []
     const cityIds: number[] = []
-    let shouldUpdateCategories = hasCategories
+    let shouldUpdateCategories = categoryNames.length > 0
     let shouldUpdateCountries = hasCountry
     let shouldUpdateCities = hasCity
 
@@ -595,14 +1050,8 @@ export async function POST(request: Request) {
       return created
     }
 
-    if (hasCategories) {
-      const categoryNames = Array.isArray(taxonomyResult.categories)
-        ? taxonomyResult.categories
-        : []
-
-      for (const rawName of categoryNames) {
-        const categoryName = sanitizeString(rawName)
-        if (!categoryName) continue
+    if (categoryNames.length > 0) {
+      for (const categoryName of categoryNames) {
         try {
           const category = await ensureCategory(categoryName)
           if (category && !categoryIds.includes(category.id)) {
@@ -698,6 +1147,14 @@ export async function POST(request: Request) {
         sentiment: sentiment || undefined,
         contentType: contentType || undefined,
         material: updatedMaterial,
+        classification: advancedCategoryResult
+          ? {
+              category: advancedCategoryResult.category,
+              confidence: advancedCategoryResult.confidence,
+              supercategory: advancedCategoryResult.supercategory ?? null,
+              reasoning: advancedCategoryResult.reasoning,
+            }
+          : null,
       },
     })
   } catch (error) {
