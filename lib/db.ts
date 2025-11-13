@@ -303,7 +303,7 @@ export class DatabaseService {
       await client.query(`
         CREATE INDEX IF NOT EXISTS idx_material_categories_category ON material_categories(category_id)
       `)
-
+      
       // Таблица для настроек
       await client.query(`
         CREATE TABLE IF NOT EXISTS settings (
@@ -429,17 +429,17 @@ export class DatabaseService {
 
     switch (status) {
       case 'processed':
-        clause = 'WHERE m.processed = TRUE'
+        clause = "WHERE m.status = 'processed'"
         break
       case 'published':
-        clause = 'WHERE m.published = TRUE'
+        clause = "WHERE m.status = 'published'"
         break
       case 'archived':
         clause = 'WHERE m.status = $1'
         params = ['archived']
         break
       case 'new':
-        clause = 'WHERE m.processed = FALSE AND m.status <> \'archived\''
+        clause = "WHERE m.status = 'new'"
         break
       case 'all':
         return this.getAllMaterials()
@@ -474,11 +474,11 @@ export class DatabaseService {
     // Status filter
     if (options.status && options.status !== 'all') {
       if (options.status === 'processed') {
-        conditions.push('m.processed = TRUE')
+        conditions.push("m.status = 'processed'")
       } else if (options.status === 'published') {
-        conditions.push('m.published = TRUE')
+        conditions.push("m.status = 'published'")
       } else if (options.status === 'new') {
-        conditions.push("m.processed = FALSE AND m.status <> 'archived'")
+        conditions.push("m.status = 'new'")
       } else {
         conditions.push(`m.status = $${paramIndex}`)
         params.push(options.status)
@@ -740,8 +740,11 @@ export class DatabaseService {
     try {
       await client.query('BEGIN')
 
-      if (Array.isArray(data.categoryIds)) {
         await client.query('DELETE FROM material_categories WHERE material_id = $1', [materialId])
+      await client.query('DELETE FROM material_countries WHERE material_id = $1', [materialId])
+      await client.query('DELETE FROM material_cities WHERE material_id = $1', [materialId])
+
+      if (data.categoryIds && data.categoryIds.length > 0) {
         for (const categoryId of data.categoryIds) {
           await client.query(
             'INSERT INTO material_categories (material_id, category_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
@@ -750,8 +753,7 @@ export class DatabaseService {
         }
       }
 
-      if (Array.isArray(data.countryIds)) {
-        await client.query('DELETE FROM material_countries WHERE material_id = $1', [materialId])
+      if (data.countryIds && data.countryIds.length > 0) {
         for (const countryId of data.countryIds) {
           await client.query(
             'INSERT INTO material_countries (material_id, country_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
@@ -760,8 +762,7 @@ export class DatabaseService {
         }
       }
 
-      if (Array.isArray(data.cityIds)) {
-        await client.query('DELETE FROM material_cities WHERE material_id = $1', [materialId])
+      if (data.cityIds && data.cityIds.length > 0) {
         for (const cityId of data.cityIds) {
           await client.query(
             'INSERT INTO material_cities (material_id, city_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
@@ -770,6 +771,24 @@ export class DatabaseService {
         }
       }
 
+      await client.query('COMMIT')
+    } catch (error) {
+      await client.query('ROLLBACK')
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
+  async deleteMaterial(id: string): Promise<void> {
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      await client.query('DELETE FROM material_categories WHERE material_id = $1', [id])
+      await client.query('DELETE FROM material_countries WHERE material_id = $1', [id])
+      await client.query('DELETE FROM material_cities WHERE material_id = $1', [id])
+      await client.query('DELETE FROM categorization_logs WHERE material_id = $1', [id])
+      await client.query('DELETE FROM materials WHERE id = $1', [id])
       await client.query('COMMIT')
     } catch (error) {
       await client.query('ROLLBACK')
@@ -813,39 +832,15 @@ export class DatabaseService {
       paramIndex++
     }
 
-    if (updates.length === 0) return
-
-    await pool.query(
-      `UPDATE materials SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
-      [...values, id]
-    )
-  }
-
-  async updateMaterialStatus(id: string, status: string): Promise<void> {
-    switch (status) {
-      case 'published':
-        await this.updateMaterialAttributes(id, { status, published: true })
-        return
-      case 'processed':
-        await this.updateMaterialAttributes(id, { status, processed: true })
-        return
-      case 'new':
-        await this.updateMaterialAttributes(id, {
-          status,
-          processed: false,
-          published: false,
-        })
-        return
-      default:
-        await this.updateMaterialAttributes(id, { status })
-        return
+    if (updates.length === 0) {
+      return
     }
-  }
 
-  async deleteMaterial(id: string): Promise<void> {
+    values.push(id)
+
     await pool.query(
-      'DELETE FROM materials WHERE id = $1',
-      [id]
+      `UPDATE materials SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${paramIndex}`,
+      values
     )
   }
 
@@ -853,9 +848,9 @@ export class DatabaseService {
     const result = await pool.query(`
       SELECT 
         COUNT(*) as total,
-        COUNT(*) FILTER (WHERE processed = FALSE AND status <> 'archived') as new_count,
-        COUNT(*) FILTER (WHERE processed = TRUE) as processed_count,
-        COUNT(*) FILTER (WHERE published = TRUE) as published_count,
+        COUNT(*) FILTER (WHERE status = 'new') as new_count,
+        COUNT(*) FILTER (WHERE status = 'processed') as processed_count,
+        COUNT(*) FILTER (WHERE status = 'published') as published_count,
         COUNT(*) FILTER (WHERE status = 'archived') as archived_count,
         MAX(fetched_at) as last_fetch
       FROM materials
@@ -960,7 +955,7 @@ export class DatabaseService {
       metaDescription?: string
       sentiment?: 'positive' | 'neutral' | 'negative'
       contentType?: 'purely_factual' | 'mostly_factual' | 'balanced' | 'mostly_opinion' | 'purely_opinion'
-      setProcessed?: boolean // Автоматически устанавливать статус "processed" при успешной генерации
+      setProcessed?: boolean
     }
   ): Promise<void> {
     const updates: string[] = []
@@ -987,13 +982,12 @@ export class DatabaseService {
       values.push(data.contentType)
       paramIndex++
     }
-    // Автоматически устанавливаем статус "processed" при успешной генерации саммари
     if (data.setProcessed === true) {
       updates.push('processed = TRUE')
-      updates.push(`status = CASE 
-        WHEN status = 'archived' THEN status 
-        WHEN status = 'published' THEN status 
-        ELSE 'processed' 
+      updates.push(`status = CASE
+        WHEN status = 'archived' THEN status
+        WHEN status = 'published' THEN status
+        ELSE 'processed'
       END`)
     }
 
@@ -1002,27 +996,17 @@ export class DatabaseService {
     await pool.query(
         `UPDATE materials SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
         values
-    )
+      )
     }
   }
 
-  async getMaterialSummary(id: string): Promise<string | null> {
-    const result = await pool.query(
-      'SELECT summary FROM materials WHERE id = $1',
-      [id]
-    )
-    return result.rows[0]?.summary || null
-  }
-
-  async getCategoryExamples(limit = 15): Promise<
-    Array<{
-      id: string
-      title: string
-      summary: string | null
-      content: string | null
-      category: string
-    }>
-  > {
+  async getCategoryExamples(limit = 15): Promise<Array<{
+    id: string
+    title: string
+    summary: string | null
+    content: string | null
+    category: string
+  }>> {
     const result = await pool.query(
       `
       SELECT 
