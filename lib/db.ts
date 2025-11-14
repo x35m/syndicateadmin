@@ -102,6 +102,7 @@ export class DatabaseService {
           author VARCHAR(255),
           created_at TIMESTAMP NOT NULL,
           fetched_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
           link TEXT,
           source VARCHAR(500),
           source_type VARCHAR(50) NOT NULL DEFAULT 'rss',
@@ -299,6 +300,13 @@ export class DatabaseService {
 
           IF NOT EXISTS (
             SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'materials' AND column_name = 'updated_at'
+          ) THEN
+            ALTER TABLE materials ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT NOW();
+          END IF;
+
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
             WHERE table_name = 'materials' AND column_name = 'source_type'
           ) THEN
             ALTER TABLE materials ADD COLUMN source_type VARCHAR(50) NOT NULL DEFAULT 'rss';
@@ -427,7 +435,8 @@ export class DatabaseService {
                fetched_at = EXCLUDED.fetched_at,
                link = EXCLUDED.link,
                source_type = EXCLUDED.source_type,
-               telegram_message_id = EXCLUDED.telegram_message_id`,
+               telegram_message_id = EXCLUDED.telegram_message_id,
+               updated_at = NOW()`,
             [
               material.id,
               material.title,
@@ -556,12 +565,16 @@ export class DatabaseService {
     }
 
     const result = await pool.query(
-      `SELECT DISTINCT m.id
-       FROM materials m
-       JOIN material_categories mc ON mc.material_id = m.id
-       WHERE m.status = 'processed'
-         AND mc.category_id = ANY($1::int[])
-       ORDER BY m.fetched_at ASC
+      `SELECT sub.id
+       FROM (
+         SELECT m.id, MIN(m.fetched_at) AS fetched_at
+         FROM materials m
+         JOIN material_categories mc ON mc.material_id = m.id
+         WHERE m.status = 'processed'
+           AND mc.category_id = ANY($1::int[])
+         GROUP BY m.id
+       ) sub
+       ORDER BY sub.fetched_at ASC
        LIMIT $2`,
       [categoryIds, limit]
     )
