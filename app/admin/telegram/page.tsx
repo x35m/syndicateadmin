@@ -6,8 +6,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
-import { Loader2, Power, PowerOff, RefreshCw, Trash2 } from 'lucide-react'
+import { Loader2, Power, PowerOff, RefreshCw, Trash2, Save } from 'lucide-react'
 
 interface TelegramChannel {
   id: number
@@ -21,6 +23,22 @@ interface TelegramChannel {
   updatedAt: string
 }
 
+interface SettingsPayload {
+  geminiApiKey: string
+  claudeApiKey: string
+  aiProvider: 'gemini' | 'claude'
+  geminiModel: string
+  claudeModel: string
+  analysisPrompt: string
+  summaryPrompt: string
+  taxonomySystemPrompt?: string
+  taxonomyFormatPrompt?: string
+  telegramApiId: string
+  telegramApiHash: string
+  telegramSession: string
+  telegramFetchLimit: number
+}
+
 export default function TelegramChannelsPage() {
   const [channels, setChannels] = useState<TelegramChannel[]>([])
   const [loading, setLoading] = useState(true)
@@ -30,6 +48,9 @@ export default function TelegramChannelsPage() {
   const [configMessage, setConfigMessage] = useState<string | null>(null)
   const [actionId, setActionId] = useState<number | null>(null)
   const [refreshingId, setRefreshingId] = useState<number | null>(null)
+  const [settings, setSettings] = useState<SettingsPayload | null>(null)
+  const [settingsLoading, setSettingsLoading] = useState(false)
+  const [settingsSaving, setSettingsSaving] = useState(false)
 
   const loadChannels = async () => {
     setLoading(true)
@@ -50,8 +71,26 @@ export default function TelegramChannelsPage() {
     }
   }
 
+  const loadSettings = async () => {
+    setSettingsLoading(true)
+    try {
+      const response = await fetch('/api/settings', { cache: 'no-store' })
+      const result = await response.json()
+      if (!response.ok || result.success === false) {
+        throw new Error(result.error || 'Не удалось загрузить настройки')
+      }
+      setSettings(result.data)
+    } catch (error) {
+      console.error(error)
+      toast.error((error as Error).message || 'Ошибка при загрузке настроек')
+    } finally {
+      setSettingsLoading(false)
+    }
+  }
+
   useEffect(() => {
     loadChannels()
+    loadSettings()
   }, [])
 
   const handleAddChannel = async () => {
@@ -152,6 +191,33 @@ export default function TelegramChannelsPage() {
     return date.toLocaleString('ru-RU')
   }
 
+  const handleUpdateSetting = (patch: Partial<SettingsPayload>) => {
+    setSettings((prev) => (prev ? { ...prev, ...patch } : prev))
+  }
+
+  const handleSaveSettings = async () => {
+    if (!settings) return
+
+    setSettingsSaving(true)
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      })
+      const result = await response.json()
+      if (!response.ok || result.success === false) {
+        throw new Error(result.error || 'Не удалось сохранить настройки')
+      }
+      toast.success('Telegram настройки сохранены')
+      await Promise.all([loadSettings(), loadChannels()])
+    } catch (error) {
+      toast.error((error as Error).message || 'Ошибка при сохранении настроек')
+    } finally {
+      setSettingsSaving(false)
+    }
+  }
+
   return (
     <>
       <AdminHeader />
@@ -166,10 +232,92 @@ export default function TelegramChannelsPage() {
           </div>
 
           {!configReady && (
-            <div className="rounded-md border border-yellow-300 bg-yellow-50 p-4 text-sm text-yellow-900">
-              <p className="font-medium">Telegram не настроен</p>
-              <p>{configMessage || 'Укажите TELEGRAM API ID, API Hash и Session в настройках.'}</p>
-            </div>
+            <Card className="border-yellow-300 bg-yellow-50">
+              <CardHeader>
+                <CardTitle className="text-yellow-950">Telegram не настроен</CardTitle>
+                <CardDescription className="text-yellow-900">
+                  {configMessage || 'Укажите TELEGRAM API ID, API Hash и Session, чтобы активировать интеграцию.'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {settingsLoading || !settings ? (
+                  <div className="flex items-center gap-2 text-sm text-yellow-900">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Загрузка текущих настроек...
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="telegramApiId" className="text-yellow-900">
+                          Telegram API ID
+                        </Label>
+                        <Input
+                          id="telegramApiId"
+                          type="number"
+                          value={settings.telegramApiId}
+                          onChange={(event) => handleUpdateSetting({ telegramApiId: event.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="telegramApiHash" className="text-yellow-900">
+                          Telegram API Hash
+                        </Label>
+                        <Input
+                          id="telegramApiHash"
+                          type="password"
+                          value={settings.telegramApiHash}
+                          onChange={(event) => handleUpdateSetting({ telegramApiHash: event.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="telegramFetchLimit" className="text-yellow-900">
+                          Сообщений за проход
+                        </Label>
+                        <Input
+                          id="telegramFetchLimit"
+                          type="number"
+                          min={1}
+                          max={200}
+                          value={settings.telegramFetchLimit}
+                          onChange={(event) =>
+                            handleUpdateSetting({
+                              telegramFetchLimit: Math.max(1, Number(event.target.value) || 1),
+                            })
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="telegramSession" className="text-yellow-900">
+                        Telegram Session
+                      </Label>
+                      <Textarea
+                        id="telegramSession"
+                        rows={4}
+                        value={settings.telegramSession}
+                        onChange={(event) => handleUpdateSetting({ telegramSession: event.target.value })}
+                        placeholder="Вставьте session string, полученный через npm run telegram:auth"
+                        className="bg-white"
+                      />
+                    </div>
+                    <Button onClick={handleSaveSettings} disabled={settingsSaving}>
+                      {settingsSaving ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Сохранение...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="mr-2 h-4 w-4" />
+                          Сохранить Telegram настройки
+                        </>
+                      )}
+                    </Button>
+                  </>
+                )}
+              </CardContent>
+            </Card>
           )}
 
           <Card>
