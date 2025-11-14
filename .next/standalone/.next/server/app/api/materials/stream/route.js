@@ -1,4 +1,4 @@
-"use strict";(()=>{var e={};e.id=849,e.ids=[849],e.modules={399:e=>{e.exports=require("next/dist/compiled/next-server/app-page.runtime.prod.js")},517:e=>{e.exports=require("next/dist/compiled/next-server/app-route.runtime.prod.js")},3960:(e,t,a)=>{a.r(t),a.d(t,{originalPathname:()=>m,patchFetch:()=>y,requestAsyncStorage:()=>u,routeModule:()=>d,serverHooks:()=>p,staticGenerationAsyncStorage:()=>l});var n={};a.r(n),a.d(n,{GET:()=>c});var r=a(9303),o=a(8716),s=a(670),i=a(825);async function c(e){let{searchParams:t}=new URL(e.url);return t.get("status"),new Response(new ReadableStream({start(t){(0,i.HE)(t);let a=`data: ${JSON.stringify({type:"connected"})}
+"use strict";(()=>{var e={};e.id=5849,e.ids=[5849],e.modules={399:e=>{e.exports=require("next/dist/compiled/next-server/app-page.runtime.prod.js")},517:e=>{e.exports=require("next/dist/compiled/next-server/app-route.runtime.prod.js")},3960:(e,t,a)=>{a.r(t),a.d(t,{originalPathname:()=>m,patchFetch:()=>y,requestAsyncStorage:()=>u,routeModule:()=>d,serverHooks:()=>p,staticGenerationAsyncStorage:()=>l});var n={};a.r(n),a.d(n,{GET:()=>c});var r=a(9303),o=a(8716),s=a(670),i=a(825);async function c(e){let{searchParams:t}=new URL(e.url);return t.get("status"),new Response(new ReadableStream({start(t){(0,i.HE)(t);let a=`data: ${JSON.stringify({type:"connected"})}
 
 `;t.enqueue(new TextEncoder().encode(a));let n=setInterval(()=>{try{let e=`data: ${JSON.stringify({type:"ping"})}
 
@@ -8,4 +8,4 @@
 
 `,a=new TextEncoder().encode(t);n.forEach(e=>{try{e.enqueue(a)}catch(t){n.delete(e)}})}function c(e){let t=`data: ${JSON.stringify({type:"sync-complete",data:e})}
 
-`,a=new TextEncoder().encode(t);n.forEach(e=>{try{e.enqueue(a)}catch(t){n.delete(e)}})}},9303:(e,t,a)=>{e.exports=a(517)}};var t=require("../../../../webpack-runtime.js");t.C(e);var a=e=>t(t.s=e),n=t.X(0,[948],()=>a(3960));module.exports=n})();
+`,a=new TextEncoder().encode(t);n.forEach(e=>{try{e.enqueue(a)}catch(t){n.delete(e)}})}},9303:(e,t,a)=>{e.exports=a(517)}};var t=require("../../../../webpack-runtime.js");t.C(e);var a=e=>t(t.s=e),n=t.X(0,[8948],()=>a(3960));module.exports=n})();

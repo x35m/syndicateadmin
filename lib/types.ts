@@ -70,3 +70,47 @@ export interface SystemLog {
   stack?: string | null
   createdAt: string
 }
+
+export type FeedStatus = 'active' | 'inactive' | 'deleted'
+
+export interface Feed {
+  id: number
+  url: string
+  title?: string | null
+  description?: string | null
+  lastFetched?: string | null
+  status: FeedStatus
+  createdAt: string
+}
+
+export type AutomationScope = 'all' | 'selected'
+
+export interface AutomationImportConfig {
+  enabled: boolean
+  intervalMinutes: number
+  scope: AutomationScope
+  feedIds: number[]
+  lastRunAt?: string | null
+}
+
+export interface AutomationProcessingConfig {
+  enabled: boolean
+  intervalMinutes: number
+  batchSize: number
+  lastRunAt?: string | null
+}
+
+export interface AutomationPublishingConfig {
+  enabled: boolean
+  intervalMinutes: number
+  scope: AutomationScope
+  categoryIds: number[]
+  batchSize: number
+  lastRunAt?: string | null
+}
+
+export interface AutomationConfig {
+  import: AutomationImportConfig
+  processing: AutomationProcessingConfig
+  publishing: AutomationPublishingConfig
+}

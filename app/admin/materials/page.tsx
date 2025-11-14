@@ -620,7 +620,7 @@ export default function MaterialsPage() {
 
     const materialsById = new Map(materials.map((item) => [item.id, item]))
     const errors: BulkProgressState['errors'] = []
-    let successCount = 0
+        let successCount = 0
     let failedCount = 0
     let completedCount = 0
 
@@ -653,21 +653,21 @@ export default function MaterialsPage() {
 
           const material = materialsById.get(id)
           updateMetricsMessage(`Генерация саммари: ${material?.title ?? id}`)
-
+          
           try {
             const response = await fetch('/api/materials/generate-summary', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ materialId: id }),
             })
-
+            
             const result = await response.json()
-
+            
             if (!response.ok || !result.success) {
               throw new Error(result.error || 'Не удалось сгенерировать саммари')
             }
 
-            successCount++
+              successCount++
           } catch (error: any) {
             failedCount++
             errors.push({
@@ -683,7 +683,7 @@ export default function MaterialsPage() {
 
         if (successCount > 0) {
           await fetchTaxonomy()
-        }
+            }
       } else if (action === 'delete') {
         for (const id of idsArray) {
           if (bulkStopRequestedRef.current) {
@@ -1388,58 +1388,58 @@ export default function MaterialsPage() {
             </div>
           ) : (
             selectedIds.size > 0 && (
-              <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-4 fade-in duration-300">
-                <Card className="border-primary shadow-2xl">
-                  <CardContent className="py-4 px-6">
-                    <div className="flex items-center gap-4">
-                      <span className="text-sm font-medium">
-                        Выбрано: <span className="text-primary font-bold">{selectedIds.size}</span> материал(ов)
-                      </span>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="default"
-                          onClick={() => handleBulkActionClick('published')}
-                        >
-                          <CheckCircle className="mr-2 h-4 w-4" />
-                          Опубликовать
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => handleBulkActionClick('generate-summary')}
-                        >
-                          <Sparkles className="mr-2 h-4 w-4" />
-                          Саммари
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleBulkActionClick('archived')}
-                        >
-                          <Archive className="mr-2 h-4 w-4" />
-                          Архивировать
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => handleBulkActionClick('delete')}
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Удалить
-                        </Button>
-                      </div>
+            <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-4 fade-in duration-300">
+              <Card className="border-primary shadow-2xl">
+                <CardContent className="py-4 px-6">
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm font-medium">
+                      Выбрано: <span className="text-primary font-bold">{selectedIds.size}</span> материал(ов)
+                    </span>
+                    <div className="flex gap-2">
                       <Button
                         size="sm"
-                        variant="ghost"
-                        onClick={() => setSelectedIds(new Set())}
+                        variant="default"
+                        onClick={() => handleBulkActionClick('published')}
                       >
-                        Отменить
+                        <CheckCircle className="mr-2 h-4 w-4" />
+                        Опубликовать
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => handleBulkActionClick('generate-summary')}
+                      >
+                        <Sparkles className="mr-2 h-4 w-4" />
+                        Саммари
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleBulkActionClick('archived')}
+                      >
+                        <Archive className="mr-2 h-4 w-4" />
+                        Архивировать
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => handleBulkActionClick('delete')}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Удалить
                       </Button>
                     </div>
-                  </CardContent>
-                </Card>
-              </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setSelectedIds(new Set())}
+                    >
+                      Отменить
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
             )
           )}
 
@@ -1678,63 +1678,63 @@ export default function MaterialsPage() {
                       ))
                     ) : (
                       paginatedMaterials.map((material) => (
-                        <TableRow key={material.id} className="cursor-pointer hover:bg-accent/50">
-                          <TableCell onClick={(e) => e.stopPropagation()}>
-                            <Checkbox
-                              checked={selectedIds.has(material.id)}
-                              onCheckedChange={() => toggleSelect(material.id)}
+                      <TableRow key={material.id} className="cursor-pointer hover:bg-accent/50">
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <Checkbox
+                            checked={selectedIds.has(material.id)}
+                            onCheckedChange={() => toggleSelect(material.id)}
                               disabled={!!bulkProgress?.running}
+                          />
+                        </TableCell>
+                          <TableCell onClick={() => !bulkProgress?.running && openMaterialDialog(material)}>
+                          {material.thumbnail ? (
+                            <img 
+                              src={material.thumbnail} 
+                              alt={material.title}
+                              className="w-16 h-16 object-cover rounded"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none'
+                              }}
                             />
-                          </TableCell>
-                          <TableCell onClick={() => !bulkProgress?.running && openMaterialDialog(material)}>
-                            {material.thumbnail ? (
-                              <img 
-                                src={material.thumbnail} 
-                                alt={material.title}
-                                className="w-16 h-16 object-cover rounded"
-                                onError={(e) => {
-                                  e.currentTarget.style.display = 'none'
-                                }}
-                              />
-                            ) : (
-                              <div className="w-16 h-16 bg-muted rounded flex items-center justify-center text-xs text-muted-foreground">
-                                Нет фото
-                              </div>
-                            )}
-                          </TableCell>
+                          ) : (
+                            <div className="w-16 h-16 bg-muted rounded flex items-center justify-center text-xs text-muted-foreground">
+                              Нет фото
+                            </div>
+                          )}
+                        </TableCell>
                           <TableCell className="font-medium" onClick={() => !bulkProgress?.running && openMaterialDialog(material)}>
-                            <div className="line-clamp-3 leading-snug">
-                              {material.title}
-                            </div>
-                          </TableCell>
+                          <div className="line-clamp-3 leading-snug">
+                            {material.title}
+                          </div>
+                        </TableCell>
                           <TableCell onClick={() => !bulkProgress?.running && openMaterialDialog(material)}>
-                            {material.categories && material.categories.length > 0 ? (
-                              <div className="flex max-w-[220px] flex-wrap gap-1">
-                                {material.categories.slice(0, 3).map((category) => (
-                                  <Badge key={`${material.id}-category-${category.id}`} variant="outline" className="text-xs font-normal">
-                                    {category.name}
-                                  </Badge>
-                                ))}
-                                {material.categories.length > 3 && (
-                                  <Badge variant="secondary" className="text-xs font-normal">
-                                    +{material.categories.length - 3}
-                                  </Badge>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
-                            )}
-                          </TableCell>
-                          <TableCell onClick={() => !bulkProgress?.running && openMaterialDialog(material)}>
-                            <div className="truncate max-w-[200px]" title={material.feedName || material.source}>
-                              {material.feedName || material.source || '—'}
+                          {material.categories && material.categories.length > 0 ? (
+                            <div className="flex max-w-[220px] flex-wrap gap-1">
+                              {material.categories.slice(0, 3).map((category) => (
+                                <Badge key={`${material.id}-category-${category.id}`} variant="outline" className="text-xs font-normal">
+                                  {category.name}
+                                </Badge>
+                              ))}
+                              {material.categories.length > 3 && (
+                                <Badge variant="secondary" className="text-xs font-normal">
+                                  +{material.categories.length - 3}
+                                </Badge>
+                              )}
                             </div>
-                          </TableCell>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                          <TableCell onClick={() => !bulkProgress?.running && openMaterialDialog(material)}>
+                          <div className="truncate max-w-[200px]" title={material.feedName || material.source}>
+                            {material.feedName || material.source || '—'}
+                          </div>
+                        </TableCell>
                           <TableCell onClick={() => !bulkProgress?.running && openMaterialDialog(material)}>{formatDate(material.createdAt)}</TableCell>
                           <TableCell onClick={() => !bulkProgress?.running && openMaterialDialog(material)}>
                             {getStatusBadge(material.status)}
                           </TableCell>
-                        </TableRow>
+                      </TableRow>
                       ))
                     )}
                   </TableBody>

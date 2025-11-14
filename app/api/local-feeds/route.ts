@@ -116,20 +116,48 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const body = await request.json()
-    const { id, title } = body
+    const { id, title, status } = body as {
+      id?: string | number
+      title?: string
+      status?: 'active' | 'inactive'
+    }
 
-    if (!id || !title) {
+    if (!id) {
       return NextResponse.json(
-        { success: false, error: 'Feed ID and title are required' },
+        { success: false, error: 'Feed ID is required' },
         { status: 400 }
       )
     }
 
-    await db.updateFeedTitle(parseInt(id), title)
+    const feedId = Number(id)
+    if (Number.isNaN(feedId)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid feed ID' },
+        { status: 400 }
+      )
+    }
+
+    if (!title && !status) {
+      return NextResponse.json(
+        { success: false, error: 'Nothing to update' },
+        { status: 400 }
+      )
+    }
+
+    if (title) {
+      await db.updateFeedTitle(feedId, title)
+    }
+
+    if (status) {
+      await db.updateFeedStatus(feedId, status)
+    }
+
+    const updated = await db.getFeedById(feedId)
 
     return NextResponse.json({
       success: true,
-      message: 'Feed title updated successfully',
+      message: 'Feed updated successfully',
+      data: updated,
     })
   } catch (error) {
     console.error('Error updating feed title:', error)

@@ -218,7 +218,7 @@ export async function POST(request: Request) {
       contentToAnalyze =
         contentToAnalyze.substring(0, MAX_CONTENT_LENGTH) + '...'
     }
-
+    
     const [taxonomyDataRaw, categoryExamples] = await Promise.all([
       db.getTaxonomy(),
       db.getCategoryExamples(15),

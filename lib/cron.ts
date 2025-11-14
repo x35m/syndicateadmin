@@ -6,7 +6,11 @@ import { logSystemError } from './logger'
 
 let isRunning = false
 
-export async function fetchAndSaveMaterials() {
+export interface FetchMaterialsOptions {
+  feedIds?: number[]
+}
+
+export async function fetchAndSaveMaterials(options?: FetchMaterialsOptions) {
   if (isRunning) {
     console.log('Previous fetch still running, skipping...')
     return
@@ -22,10 +26,13 @@ export async function fetchAndSaveMaterials() {
     let totalErrors = 0
 
     // Синхронизируем RSS фиды
-    const feeds = await db.getAllFeeds()
+    const feedsList = options?.feedIds && options.feedIds.length > 0
+      ? await db.getFeedsByIds(options.feedIds)
+      : await db.getActiveFeeds()
+    const feeds = feedsList.filter((feed) => feed.status === 'active')
     
     if (feeds.length === 0) {
-      console.log(`[${new Date().toISOString()}] No RSS feeds configured. Add feeds via admin panel.`)
+      console.log(`[${new Date().toISOString()}] No RSS feeds selected or active. Add feeds via admin panel.`)
       return { 
         fetched: 0, 
         new: 0, 

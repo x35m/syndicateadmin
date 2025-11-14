@@ -29,6 +29,13 @@ export async function POST(request: Request) {
       )
     }
 
+    if (feed.status !== 'active') {
+      return NextResponse.json(
+        { success: false, error: 'Импорт из неактивного фида отключен' },
+        { status: 400 }
+      )
+    }
+
     // Парсим фид
     const feedData = await rssParser.parseFeed(feed.url)
     

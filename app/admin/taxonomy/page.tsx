@@ -531,9 +531,9 @@ export default function TaxonomyPage() {
                           <Badge variant={item.isHidden ? 'outline' : 'default'}>
                             {item.isHidden ? 'Скрыта' : 'Видна'}
                           </Badge>
-                          <Button
+                    <Button
                             variant="ghost"
-                            size="sm"
+                      size="sm"
                             onClick={() =>
                               toggleCategoryVisibility(item.id, !item.isHidden)
                             }
@@ -544,8 +544,8 @@ export default function TaxonomyPage() {
                               : item.isHidden
                               ? 'Показать'
                               : 'Скрыть'}
-                          </Button>
-                        </div>
+                    </Button>
+                  </div>
                       </TableCell>
                     )}
                     <TableCell className="text-right">

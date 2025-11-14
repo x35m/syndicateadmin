@@ -34,16 +34,19 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
 
 interface Feed {
   id: string
-  name: string
-  title?: string
+  name?: string
+  title?: string | null
   feedName?: string
   url: string
   feedUrl?: string
   unread?: number
+  status: 'active' | 'inactive' | 'deleted'
+  lastFetched?: string | null
 }
 
 type BulkFeedAction = 'update' | 'delete' | null
@@ -59,6 +62,7 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
   const [newFeedUrl, setNewFeedUrl] = useState('')
   const [adding, setAdding] = useState(false)
   const [importing, setImporting] = useState<string | null>(null)
+  const [togglingFeedId, setTogglingFeedId] = useState<string | null>(null)
   const [editingFeedId, setEditingFeedId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
   const [selectedFeedIds, setSelectedFeedIds] = useState<Set<string>>(new Set())
@@ -75,7 +79,13 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
       const result = await response.json()
       
       if (result.success) {
-        setFeeds(result.data)
+        const normalizedFeeds: Feed[] = (result.data ?? []).map((feed: any) => ({
+          ...feed,
+          id: String(feed.id),
+          status: feed.status ?? 'active',
+          lastFetched: feed.lastFetched ?? feed.last_fetched ?? null,
+        }))
+        setFeeds(normalizedFeeds)
       }
     } catch (error) {
       console.error('Error fetching feeds:', error)
@@ -200,6 +210,44 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
       }
     } finally {
       setImporting(null)
+    }
+  }
+
+  const handleToggleFeedStatus = async (feed: Feed) => {
+    const nextStatus = feed.status === 'active' ? 'inactive' : 'active'
+    setTogglingFeedId(feed.id)
+    try {
+      const response = await fetch('/api/local-feeds', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: feed.id, status: nextStatus }),
+      })
+      const result = await response.json()
+      if (!result.success) {
+        throw new Error(result.error || 'Не удалось обновить статус фида')
+      }
+
+      setFeeds((prev) =>
+        prev.map((item) =>
+          item.id === feed.id
+            ? {
+                ...item,
+                status: nextStatus,
+              }
+            : item
+        )
+      )
+
+      toast.success(
+        nextStatus === 'active'
+          ? 'Фид активирован и будет участвовать в автоматическом импорте'
+          : 'Фид деактивирован и не будет участвовать в автоматическом импорте'
+      )
+    } catch (error) {
+      console.error('Error toggling feed status:', error)
+      toast.error('Не удалось обновить статус фида')
+    } finally {
+      setTogglingFeedId(null)
     }
   }
 
@@ -449,6 +497,7 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
                   </TableHead>
                   <TableHead>Название источника</TableHead>
                   <TableHead>URL</TableHead>
+                  <TableHead className="w-40 text-center">Статус</TableHead>
                   <TableHead className="w-[120px]">Действия</TableHead>
                 </TableRow>
               </TableHeader>
@@ -512,6 +561,31 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
                     <TableCell>
                       <div className="truncate max-w-md text-muted-foreground text-sm">
                         {feed.url || feed.feedUrl || 'URL не указан'}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col items-start gap-2">
+                        <Badge variant={feed.status === 'active' ? 'default' : 'secondary'}>
+                          {feed.status === 'active' ? 'Активен' : 'Отключен'}
+                        </Badge>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleToggleFeedStatus(feed)}
+                          disabled={togglingFeedId === feed.id}
+                          className="px-0 text-xs"
+                        >
+                          {togglingFeedId === feed.id ? (
+                            <span className="inline-flex items-center gap-2">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              Обновление...
+                            </span>
+                          ) : feed.status === 'active' ? (
+                            'Деактивировать'
+                          ) : (
+                            'Активировать'
+                          )}
+                        </Button>
                       </div>
                     </TableCell>
                     <TableCell>

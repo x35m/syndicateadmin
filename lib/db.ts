@@ -1,5 +1,5 @@
 import { Pool } from 'pg'
-import { Material, Category, Country, City, CategorizationLog, SystemLog } from './types'
+import { Material, Category, Country, City, CategorizationLog, SystemLog, Feed, AutomationConfig } from './types'
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || process.env.DATABASE_PUBLIC_URL,
@@ -473,6 +473,48 @@ export class DatabaseService {
     return result.rows.map(row => this.transformMaterialRow(row))
   }
 
+  async getMaterialIdsByStatus(status: string, limit: number): Promise<string[]> {
+    const result = await pool.query(
+      `SELECT id FROM materials WHERE status = $1 ORDER BY fetched_at ASC LIMIT $2`,
+      [status, limit]
+    )
+    return result.rows.map((row) => row.id as string)
+  }
+
+  async getMaterialIdsForPublishing(categoryIds: number[], limit: number): Promise<string[]> {
+    if (limit <= 0) {
+      return []
+    }
+
+    if (!categoryIds || categoryIds.length === 0) {
+      const result = await pool.query(
+        `SELECT id FROM materials WHERE status = 'processed' ORDER BY fetched_at ASC LIMIT $1`,
+        [limit]
+      )
+      return result.rows.map((row) => row.id as string)
+    }
+
+    const result = await pool.query(
+      `SELECT DISTINCT m.id
+       FROM materials m
+       JOIN material_categories mc ON mc.material_id = m.id
+       WHERE m.status = 'processed'
+         AND mc.category_id = ANY($1::int[])
+       ORDER BY m.fetched_at ASC
+       LIMIT $2`,
+      [categoryIds, limit]
+    )
+
+    return result.rows.map((row) => row.id as string)
+  }
+
+  async getVisibleCategoryIds(): Promise<number[]> {
+    const result = await pool.query(
+      `SELECT id FROM categories WHERE is_hidden = FALSE ORDER BY name`
+    )
+    return result.rows.map((row) => Number(row.id))
+  }
+
   async getMaterialsPaginated(options: {
     page?: number
     pageSize?: number
@@ -887,23 +929,50 @@ export class DatabaseService {
   
   async addFeed(url: string, title?: string, description?: string) {
     const result = await pool.query(
-      `INSERT INTO feeds (url, title, description)
-       VALUES ($1, $2, $3)
+      `INSERT INTO feeds (url, title, description, status)
+       VALUES ($1, $2, $3, 'active')
        ON CONFLICT (url) DO UPDATE SET
          title = COALESCE(EXCLUDED.title, feeds.title),
-         description = COALESCE(EXCLUDED.description, feeds.description)
-       RETURNING *`,
+         description = COALESCE(EXCLUDED.description, feeds.description),
+         status = 'active'
+       RETURNING id, url, title, description, last_fetched as "lastFetched", status, created_at as "createdAt"`,
       [url, title, description]
     )
-    return result.rows[0]
+    return result.rows[0] as Feed
   }
 
-  async getAllFeeds() {
+  async getAllFeeds(): Promise<Feed[]> {
+    const result = await pool.query(
+      `SELECT id, url, title, description, last_fetched as "lastFetched", status, created_at as "createdAt"
+       FROM feeds
+       WHERE status <> 'deleted'
+       ORDER BY created_at DESC`
+    )
+    return result.rows
+  }
+
+  async getActiveFeeds(): Promise<Feed[]> {
     const result = await pool.query(
       `SELECT id, url, title, description, last_fetched as "lastFetched", status, created_at as "createdAt"
        FROM feeds
        WHERE status = 'active'
        ORDER BY created_at DESC`
+    )
+    return result.rows
+  }
+
+  async getFeedsByIds(ids: number[]): Promise<Feed[]> {
+    if (ids.length === 0) {
+      return []
+    }
+
+    const result = await pool.query(
+      `SELECT id, url, title, description, last_fetched as "lastFetched", status, created_at as "createdAt"
+       FROM feeds
+       WHERE id = ANY($1::int[])
+         AND status <> 'deleted'
+       ORDER BY created_at DESC`,
+      [ids]
     )
     return result.rows
   }
@@ -929,6 +998,13 @@ export class DatabaseService {
     await pool.query(
       'UPDATE feeds SET title = $1 WHERE id = $2',
       [title, id]
+    )
+  }
+
+  async updateFeedStatus(id: number, status: 'active' | 'inactive') {
+    await pool.query(
+      "UPDATE feeds SET status = $1 WHERE id = $2 AND status <> 'deleted'",
+      [status, id]
     )
   }
 
@@ -965,6 +1041,24 @@ export class DatabaseService {
       settings[row.key] = row.value
     })
     return settings
+  }
+
+  async getAutomationConfig(): Promise<AutomationConfig | null> {
+    const value = await this.getSetting('automation_config')
+    if (!value) {
+      return null
+    }
+
+    try {
+      return JSON.parse(value) as AutomationConfig
+    } catch (error) {
+      console.warn('Failed to parse automation config from settings:', error)
+      return null
+    }
+  }
+
+  async setAutomationConfig(config: AutomationConfig): Promise<void> {
+    await this.setSetting('automation_config', JSON.stringify(config))
   }
 
   // Material summary methods

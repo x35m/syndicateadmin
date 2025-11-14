@@ -16,6 +16,10 @@ if (typeof window === 'undefined') {
     initCronJob()
     runInitialFetch()
   })
+
+  import('@/lib/automation').then(({ initAutomationScheduler }) => {
+    initAutomationScheduler()
+  })
 }
 
 export default function RootLayout({
