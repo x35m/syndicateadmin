@@ -668,13 +668,42 @@ export default function MaterialsPage() {
             }
 
               successCount++
+            setMaterials((prev) =>
+              prev.map((item) =>
+                item.id === id
+                  ? {
+                      ...item,
+                      summary: result.data?.summary ?? item.summary,
+                      metaDescription: result.data?.metaDescription ?? item.metaDescription,
+                      processed: true,
+                    }
+                  : item
+              )
+            )
+
+            if (selectedMaterial?.id === id) {
+              setSelectedMaterial((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      summary: result.data?.summary ?? prev.summary,
+                      metaDescription: result.data?.metaDescription ?? prev.metaDescription,
+                      processed: true,
+                    }
+                  : prev
+              )
+            }
+
+            updateMetricsMessage(`Сгенерировано саммари: ${materialsById.get(id)?.title ?? id}`)
           } catch (error: any) {
             failedCount++
+            const message = error instanceof Error ? error.message : String(error)
             errors.push({
               id,
               title: materialsById.get(id)?.title ?? id,
-              message: error instanceof Error ? error.message : String(error),
+              message,
             })
+            toast.error(`Ошибка генерации саммари для «${materialsById.get(id)?.title ?? id}»: ${message}`)
           }
 
           completedCount++
@@ -783,13 +812,43 @@ export default function MaterialsPage() {
           try {
             await processPatch(id, { published: true })
             successCount++
+
+            setMaterials((prev) =>
+              prev.map((item) =>
+                item.id === id
+                  ? {
+                      ...item,
+                      status: 'published',
+                      processed: true,
+                      published: true,
+                    }
+                  : item
+              )
+            )
+
+            if (selectedMaterial?.id === id) {
+              setSelectedMaterial((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      status: 'published',
+                      processed: true,
+                      published: true,
+                    }
+                  : prev
+              )
+            }
+
+            updateMetricsMessage(`Опубликовано: ${material.title}`)
           } catch (error: any) {
             failedCount++
+            const message = error instanceof Error ? error.message : String(error)
             errors.push({
               id,
               title: material.title,
-              message: error instanceof Error ? error.message : String(error),
+              message,
             })
+            toast.error(`Ошибка публикации «${material.title}»: ${message}`)
           }
 
           completedCount++

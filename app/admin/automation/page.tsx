@@ -45,11 +45,6 @@ const FEED_SCOPE_OPTIONS: Array<{ value: AutomationImportConfig['scope']; label:
   { value: 'selected', label: 'Выбранные фиды' },
 ]
 
-const CATEGORY_SCOPE_OPTIONS: Array<{ value: AutomationPublishingConfig['scope']; label: string }> = [
-  { value: 'all', label: 'Все активные категории' },
-  { value: 'selected', label: 'Выбранные категории' },
-]
-
 function formatDateTime(value?: string | null): string {
   if (!value) return '—'
   const date = new Date(value)
@@ -119,39 +114,72 @@ function FeedList({
 function CategoryList({
   categories,
   selectedCategoryIds,
+  scope,
+  onScopeChange,
   onToggle,
 }: {
   categories: CategorySummary[]
   selectedCategoryIds: number[]
+  scope: AutomationPublishingConfig['scope']
+  onScopeChange: (scope: AutomationPublishingConfig['scope']) => void
   onToggle: (id: number) => void
 }) {
   if (categories.length === 0) {
     return <p className="text-sm text-muted-foreground">Категории не найдены.</p>
   }
 
+  const handleScopeToggle = (value: boolean) => {
+    onScopeChange(value ? 'all' : 'selected')
+  }
+
   return (
-    <div className="max-h-60 overflow-y-auto rounded-md border bg-muted/30 p-3">
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {categories.map((category) => (
-          <label
-            key={category.id}
-            className="flex cursor-pointer items-start gap-3 rounded-md border border-transparent bg-background p-3 text-sm transition-colors hover:border-primary/40"
-          >
-            <Checkbox
-              checked={selectedCategoryIds.includes(category.id)}
-              onCheckedChange={() => onToggle(category.id)}
-            />
-            <div className="flex flex-col gap-1">
-              <span className="font-medium leading-tight">
-                {category.name}
-              </span>
-              {category.isHidden && (
-                <span className="text-xs text-muted-foreground">Категория скрыта</span>
-              )}
-            </div>
-          </label>
-        ))}
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/20 px-3 py-2">
+        <div>
+          <p className="text-sm font-medium">Диапазон категорий</p>
+          <p className="text-xs text-muted-foreground">
+            Выберите «Все категории» или отметьте конкретные для автопубликации.
+          </p>
+        </div>
+        <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+          <Checkbox
+            checked={scope === 'all'}
+            onCheckedChange={(value) => handleScopeToggle(value === true)}
+          />
+          Все категории
+        </label>
       </div>
+
+      {scope === 'all' ? (
+        <p className="text-sm text-muted-foreground">
+          Будут публиковаться все материалы, относящиеся к видимым категориям.
+          Чтобы сузить пул, отключите опцию «Все категории» и отметьте нужные.
+        </p>
+      ) : (
+        <div className="max-h-60 overflow-y-auto rounded-md border bg-muted/30 p-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {categories.map((category) => (
+              <label
+                key={category.id}
+                className="flex cursor-pointer items-start gap-3 rounded-md border border-transparent bg-background p-3 text-sm transition-colors hover:border-primary/40"
+              >
+                <Checkbox
+                  checked={selectedCategoryIds.includes(category.id)}
+                  onCheckedChange={() => onToggle(category.id)}
+                />
+                <div className="flex flex-col gap-1">
+                  <span className="font-medium leading-tight">
+                    {category.name}
+                  </span>
+                  {category.isHidden && (
+                    <span className="text-xs text-muted-foreground">Категория скрыта</span>
+                  )}
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -266,6 +294,9 @@ export default function AutomationPage() {
   }
 
   const handleToggleCategory = (categoryId: number) => {
+    if (config.publishing.scope !== 'selected') {
+      updatePublishing({ scope: 'selected' })
+    }
     updatePublishing({
       categoryIds: config.publishing.categoryIds.includes(categoryId)
         ? config.publishing.categoryIds.filter((id) => id !== categoryId)
@@ -504,30 +535,13 @@ export default function AutomationPage() {
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Категории</label>
-                    <div className="flex flex-wrap gap-2">
-                      {CATEGORY_SCOPE_OPTIONS.map((option) => (
-                        <Button
-                          key={option.value}
-                          type="button"
-                          variant={config.publishing.scope === option.value ? 'default' : 'outline'}
-                          size="sm"
-                          onClick={() => updatePublishing({ scope: option.value })}
-                        >
-                          {option.label}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {config.publishing.scope === 'selected' && (
-                    <CategoryList
-                      categories={categories}
-                      selectedCategoryIds={config.publishing.categoryIds}
-                      onToggle={handleToggleCategory}
-                    />
-                  )}
+                  <CategoryList
+                    categories={categories}
+                    selectedCategoryIds={config.publishing.categoryIds}
+                    scope={config.publishing.scope}
+                    onScopeChange={(nextScope) => updatePublishing({ scope: nextScope })}
+                    onToggle={handleToggleCategory}
+                  />
 
                   <p className="text-xs text-muted-foreground">
                     Последний запуск: {formatDateTime(config.publishing.lastRunAt)}
