@@ -1,0 +1,11 @@
+node_modules
+.git
+.github
+.gitignore
+.DS_Store
+tsconfig.tsbuildinfo
+README.md
+docs
+RAILWAY_DEPLOY.md
+SETUP.md
+
