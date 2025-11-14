@@ -191,16 +191,10 @@ class AutomationScheduler {
   private async runPublishing() {
     const batchSize = Math.max(1, this.config.publishing.batchSize)
 
-    let categoryIds: number[] = []
-    if (this.config.publishing.scope === 'selected') {
-      categoryIds = this.config.publishing.categoryIds
-    } else {
-      categoryIds = await db.getVisibleCategoryIds()
-    }
-
-    if (categoryIds.length === 0) {
-      return
-    }
+    const categoryIds =
+      this.config.publishing.scope === 'selected'
+        ? this.config.publishing.categoryIds
+        : await db.getVisibleCategoryIds()
 
     const materialIds = await db.getMaterialIdsForPublishing(categoryIds, batchSize)
     if (materialIds.length === 0) {
