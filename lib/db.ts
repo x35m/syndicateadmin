@@ -1,5 +1,15 @@
 import { Pool } from 'pg'
-import { Material, Category, Country, City, CategorizationLog, SystemLog, Feed, AutomationConfig } from './types'
+import {
+  Material,
+  Category,
+  Country,
+  City,
+  CategorizationLog,
+  SystemLog,
+  Feed,
+  AutomationConfig,
+  TelegramChannel,
+} from './types'
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || process.env.DATABASE_PUBLIC_URL,
@@ -18,6 +28,8 @@ export class DatabaseService {
                    m.fetched_at AS "fetchedAt",
                    m.link,
                    m.source,
+                   m.source_type AS "sourceType",
+                   m.telegram_message_id AS "telegramMessageId",
                    m.status,
                    m.processed,
                    m.published,
@@ -92,6 +104,8 @@ export class DatabaseService {
           fetched_at TIMESTAMP NOT NULL DEFAULT NOW(),
           link TEXT,
           source VARCHAR(500),
+          source_type VARCHAR(50) NOT NULL DEFAULT 'rss',
+          telegram_message_id VARCHAR(255),
           status VARCHAR(50) DEFAULT 'new',
           UNIQUE(id)
         )
@@ -188,6 +202,20 @@ export class DatabaseService {
         )
       `)
 
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS telegram_channels (
+          id SERIAL PRIMARY KEY,
+          username VARCHAR(255) NOT NULL UNIQUE,
+          title TEXT,
+          description TEXT,
+          subscribers_count INTEGER,
+          is_active BOOLEAN NOT NULL DEFAULT TRUE,
+          last_parsed TIMESTAMP,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `)
+
       // Миграция: добавляем новые колонки если их нет
       await client.query(`
         DO $$ 
@@ -268,6 +296,20 @@ export class DatabaseService {
           ) THEN
             ALTER TABLE materials ADD COLUMN published BOOLEAN NOT NULL DEFAULT FALSE;
           END IF;
+
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'materials' AND column_name = 'source_type'
+          ) THEN
+            ALTER TABLE materials ADD COLUMN source_type VARCHAR(50) NOT NULL DEFAULT 'rss';
+          END IF;
+
+          IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_name = 'materials' AND column_name = 'telegram_message_id'
+          ) THEN
+            ALTER TABLE materials ADD COLUMN telegram_message_id VARCHAR(255);
+          END IF;
         END $$;
       `)
       
@@ -309,6 +351,10 @@ export class DatabaseService {
       `)
 
       await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_materials_source_type ON materials(source_type)
+      `)
+
+      await client.query(`
         CREATE INDEX IF NOT EXISTS idx_materials_processed ON materials(processed)
       `)
 
@@ -317,11 +363,21 @@ export class DatabaseService {
       `)
 
       await client.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_materials_source_telegram_msg 
+        ON materials(source, telegram_message_id) 
+        WHERE telegram_message_id IS NOT NULL
+      `)
+
+      await client.query(`
         CREATE INDEX IF NOT EXISTS idx_material_categories_material ON material_categories(material_id)
       `)
 
       await client.query(`
         CREATE INDEX IF NOT EXISTS idx_material_categories_category ON material_categories(category_id)
+      `)
+
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_telegram_channels_active ON telegram_channels(is_active)
       `)
       
       // Таблица для настроек
@@ -363,13 +419,15 @@ export class DatabaseService {
           const exists = checkResult.rows.length > 0
 
           await client.query(
-            `INSERT INTO materials (id, title, content, full_content, thumbnail, author, created_at, fetched_at, link, source, status)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            `INSERT INTO materials (id, title, content, full_content, thumbnail, author, created_at, fetched_at, link, source, source_type, telegram_message_id, status)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
              ON CONFLICT (id) DO UPDATE SET
                full_content = EXCLUDED.full_content,
                thumbnail = EXCLUDED.thumbnail,
                fetched_at = EXCLUDED.fetched_at,
-               link = EXCLUDED.link`,
+               link = EXCLUDED.link,
+               source_type = EXCLUDED.source_type,
+               telegram_message_id = EXCLUDED.telegram_message_id`,
             [
               material.id,
               material.title,
@@ -381,6 +439,8 @@ export class DatabaseService {
               material.fetchedAt,
               material.link,
               material.source,
+              material.sourceType ?? 'rss',
+              material.telegramMessageId ?? null,
               material.status,
             ]
           )
@@ -430,6 +490,7 @@ export class DatabaseService {
 
     return {
       ...row,
+      sourceType: row.sourceType || 'rss',
       processed: Boolean(row.processed),
       published: Boolean(row.published),
       categories,
@@ -1013,6 +1074,150 @@ export class DatabaseService {
       'UPDATE feeds SET status = $1 WHERE id = $2',
       ['deleted', id]
     )
+  }
+
+  // ========== МЕТОДЫ ДЛЯ TELEGRAM-КАНАЛОВ ==========
+
+  private mapTelegramChannelRow(row: any): TelegramChannel {
+    return {
+      id: Number(row.id),
+      username: row.username,
+      title: row.title,
+      description: row.description,
+      subscribersCount: row.subscribers_count,
+      isActive: Boolean(row.is_active),
+      lastParsed: row.last_parsed,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }
+  }
+
+  async addTelegramChannel(data: {
+    username: string
+    title?: string | null
+    description?: string | null
+    subscribersCount?: number | null
+    isActive?: boolean
+  }): Promise<TelegramChannel> {
+    const result = await pool.query(
+      `INSERT INTO telegram_channels (username, title, description, subscribers_count, is_active)
+       VALUES ($1, $2, $3, $4, COALESCE($5, TRUE))
+       RETURNING id, username, title, description, subscribers_count, is_active, last_parsed, created_at, updated_at`,
+      [
+        data.username,
+        data.title ?? null,
+        data.description ?? null,
+        data.subscribersCount ?? null,
+        data.isActive ?? true,
+      ]
+    )
+    return this.mapTelegramChannelRow(result.rows[0])
+  }
+
+  async getTelegramChannelById(id: number): Promise<TelegramChannel | null> {
+    const result = await pool.query(
+      `SELECT id, username, title, description, subscribers_count, is_active, last_parsed, created_at, updated_at
+       FROM telegram_channels WHERE id = $1`,
+      [id]
+    )
+    if (result.rows.length === 0) return null
+    return this.mapTelegramChannelRow(result.rows[0])
+  }
+
+  async getTelegramChannelByUsername(username: string): Promise<TelegramChannel | null> {
+    const result = await pool.query(
+      `SELECT id, username, title, description, subscribers_count, is_active, last_parsed, created_at, updated_at
+       FROM telegram_channels WHERE username = $1`,
+      [username]
+    )
+    if (result.rows.length === 0) return null
+    return this.mapTelegramChannelRow(result.rows[0])
+  }
+
+  async getAllTelegramChannels(): Promise<TelegramChannel[]> {
+    const result = await pool.query(
+      `SELECT id, username, title, description, subscribers_count, is_active, last_parsed, created_at, updated_at
+       FROM telegram_channels
+       ORDER BY username ASC`
+    )
+    return result.rows.map((row) => this.mapTelegramChannelRow(row))
+  }
+
+  async getActiveTelegramChannels(): Promise<TelegramChannel[]> {
+    const result = await pool.query(
+      `SELECT id, username, title, description, subscribers_count, is_active, last_parsed, created_at, updated_at
+       FROM telegram_channels
+       WHERE is_active = TRUE
+       ORDER BY username ASC`
+    )
+    return result.rows.map((row) => this.mapTelegramChannelRow(row))
+  }
+
+  async updateTelegramChannel(
+    id: number,
+    data: {
+      title?: string | null
+      description?: string | null
+      subscribersCount?: number | null
+      isActive?: boolean
+    }
+  ): Promise<TelegramChannel | null> {
+    const updates: string[] = []
+    const values: any[] = []
+    let paramIndex = 1
+
+    if (data.title !== undefined) {
+      updates.push(`title = $${paramIndex}`)
+      values.push(data.title)
+      paramIndex++
+    }
+
+    if (data.description !== undefined) {
+      updates.push(`description = $${paramIndex}`)
+      values.push(data.description)
+      paramIndex++
+    }
+
+    if (data.subscribersCount !== undefined) {
+      updates.push(`subscribers_count = $${paramIndex}`)
+      values.push(data.subscribersCount)
+      paramIndex++
+    }
+
+    if (typeof data.isActive === 'boolean') {
+      updates.push(`is_active = $${paramIndex}`)
+      values.push(data.isActive)
+      paramIndex++
+    }
+
+    updates.push(`updated_at = NOW()`)
+
+    const result = await pool.query(
+      `UPDATE telegram_channels SET ${updates.join(', ')} WHERE id = $${paramIndex}
+       RETURNING id, username, title, description, subscribers_count, is_active, last_parsed, created_at, updated_at`,
+      [...values, id]
+    )
+    if (result.rows.length === 0) return null
+    return this.mapTelegramChannelRow(result.rows[0])
+  }
+
+  async deleteTelegramChannel(id: number): Promise<void> {
+    await pool.query('DELETE FROM telegram_channels WHERE id = $1', [id])
+  }
+
+  async updateTelegramChannelLastParsed(id: number): Promise<void> {
+    await pool.query(
+      `UPDATE telegram_channels SET last_parsed = NOW(), updated_at = NOW() WHERE id = $1`,
+      [id]
+    )
+  }
+
+  async materialExistsByTelegramMessage(source: string, telegramMessageId: string): Promise<boolean> {
+    const result = await pool.query(
+      `SELECT 1 FROM materials WHERE source = $1 AND telegram_message_id = $2 LIMIT 1`,
+      [source, telegramMessageId]
+    )
+    return result.rows.length > 0
   }
 
   // Settings methods

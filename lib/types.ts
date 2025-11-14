@@ -1,3 +1,5 @@
+export type MaterialSourceType = 'rss' | 'telegram'
+
 export interface Material {
   id: string
   title: string
@@ -8,6 +10,7 @@ export interface Material {
   createdAt: string
   fetchedAt: string
   source: string
+  sourceType?: MaterialSourceType
   feedName?: string // Название фида-источника
   status: 'new' | 'processed' | 'published' | 'archived'
   processed: boolean
@@ -17,6 +20,7 @@ export interface Material {
   metaDescription?: string // SEO мета-описание (150-160 символов)
   sentiment?: 'positive' | 'neutral' | 'negative' // Тональность материала
   contentType?: 'purely_factual' | 'mostly_factual' | 'balanced' | 'mostly_opinion' | 'purely_opinion' // Тип контента
+  telegramMessageId?: string
   categories?: Category[]
   countries?: Country[]
   cities?: City[]
@@ -81,6 +85,18 @@ export interface Feed {
   lastFetched?: string | null
   status: FeedStatus
   createdAt: string
+}
+
+export interface TelegramChannel {
+  id: number
+  username: string
+  title?: string | null
+  description?: string | null
+  subscribersCount?: number | null
+  isActive: boolean
+  lastParsed?: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 export type AutomationScope = 'all' | 'selected'

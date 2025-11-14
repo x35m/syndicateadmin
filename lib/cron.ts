@@ -3,6 +3,7 @@ import { db } from './db'
 import { rssParser } from './rss-parser'
 import { broadcastNewMaterial, broadcastSyncProgress, broadcastSyncComplete } from './sse-manager'
 import { logSystemError } from './logger'
+import { syncTelegramChannels } from './telegram/service'
 
 let isRunning = false
 
@@ -17,7 +18,7 @@ export async function fetchAndSaveMaterials(options?: FetchMaterialsOptions) {
   }
 
   isRunning = true
-  console.log(`[${new Date().toISOString()}] Starting RSS synchronization...`)
+  console.log(`[${new Date().toISOString()}] Starting synchronization (RSS + Telegram)...`)
 
   try {
     let totalFetched = 0
@@ -32,54 +33,71 @@ export async function fetchAndSaveMaterials(options?: FetchMaterialsOptions) {
     const feeds = feedsList.filter((feed) => feed.status === 'active')
     
     if (feeds.length === 0) {
-      console.log(`[${new Date().toISOString()}] No RSS feeds selected or active. Add feeds via admin panel.`)
-      return { 
-        fetched: 0, 
-        new: 0, 
-        updated: 0,
-        errors: 0 
+      console.log(`[${new Date().toISOString()}] No RSS feeds active. Skipping RSS step.`)
+    } else {
+      console.log(`[${new Date().toISOString()}] Syncing ${feeds.length} RSS feeds...`)
+      
+      for (const feed of feeds) {
+        try {
+          console.log(`[${new Date().toISOString()}] Fetching ${feed.title || feed.url}...`)
+          const feedData = await rssParser.parseFeed(feed.url)
+          const materials = await rssParser.convertToMaterials(feed.title || feedData.title, feed.url, feedData.items)
+          const stats = await db.saveMaterials(materials)
+          
+          await db.updateFeedFetchTime(feed.id)
+          
+          totalFetched += materials.length
+          totalNew += stats.new
+          totalUpdated += stats.updated
+          totalErrors += stats.errors
+
+          broadcastSyncProgress({
+            feed: feed.title || feed.url,
+            new: stats.new,
+            updated: stats.updated,
+            total: materials.length,
+          })
+          
+          for (const newMaterial of stats.newMaterials) {
+            broadcastNewMaterial(newMaterial)
+          }
+          
+          console.log(`[${new Date().toISOString()}] ${feed.title}: ${materials.length} fetched, ${stats.new} new, ${stats.updated} updated`)
+        } catch (feedError) {
+          console.error(`[${new Date().toISOString()}] Error syncing feed ${feed.title}:`, feedError)
+          await logSystemError('cron/fetch-feed', feedError, {
+            feedId: feed.id,
+            feedTitle: feed.title,
+            feedUrl: feed.url,
+          })
+          totalErrors++
+        }
       }
     }
-    
-    console.log(`[${new Date().toISOString()}] Syncing ${feeds.length} RSS feeds...`)
-    
-    for (const feed of feeds) {
-      try {
-        console.log(`[${new Date().toISOString()}] Fetching ${feed.title || feed.url}...`)
-        const feedData = await rssParser.parseFeed(feed.url)
-        const materials = await rssParser.convertToMaterials(feed.title || feedData.title, feed.url, feedData.items)
-        const stats = await db.saveMaterials(materials)
-        
-        await db.updateFeedFetchTime(feed.id)
-        
-        totalFetched += materials.length
-        totalNew += stats.new
-        totalUpdated += stats.updated
-        totalErrors += stats.errors
 
-        // Broadcast progress for this feed
-        broadcastSyncProgress({
-          feed: feed.title || feed.url,
-          new: stats.new,
-          updated: stats.updated,
-          total: materials.length,
-        })
-        
-        // Broadcast new materials via SSE
-        for (const newMaterial of stats.newMaterials) {
-          broadcastNewMaterial(newMaterial)
+    // Telegram synchronization
+    let telegramStats = { fetched: 0, new: 0, updated: 0, errors: 0 }
+    try {
+      const syncResult = await syncTelegramChannels()
+      if (syncResult) {
+        telegramStats = syncResult
+        totalFetched += syncResult.fetched
+        totalNew += syncResult.new
+        totalUpdated += syncResult.updated
+        totalErrors += syncResult.errors
+
+        if (syncResult.skipped) {
+          console.warn(`[${new Date().toISOString()}] Telegram sync skipped: ${syncResult.message}`)
+        } else {
+          console.log(
+            `[${new Date().toISOString()}] Telegram sync: ${syncResult.fetched} fetched, ${syncResult.new} new, ${syncResult.updated} updated`
+          )
         }
-        
-        console.log(`[${new Date().toISOString()}] ${feed.title}: ${materials.length} fetched, ${stats.new} new, ${stats.updated} updated`)
-      } catch (feedError) {
-        console.error(`[${new Date().toISOString()}] Error syncing feed ${feed.title}:`, feedError)
-        await logSystemError('cron/fetch-feed', feedError, {
-          feedId: feed.id,
-          feedTitle: feed.title,
-          feedUrl: feed.url,
-        })
-        totalErrors++
       }
+    } catch (telegramError) {
+      console.error('Telegram sync error:', telegramError)
+      await logSystemError('cron/telegram-sync', telegramError)
+      totalErrors++
     }
     
     // Broadcast sync completion
@@ -99,7 +117,8 @@ export async function fetchAndSaveMaterials(options?: FetchMaterialsOptions) {
       fetched: totalFetched, 
       new: totalNew, 
       updated: totalUpdated,
-      errors: totalErrors 
+      errors: totalErrors,
+      telegram: telegramStats,
     }
   } catch (error) {
     console.error('Error in fetchAndSaveMaterials:', error)

@@ -372,6 +372,7 @@ export class RSSParser {
         fetchedAt: new Date().toISOString(),
         link: item.link || item.guid,
         source: feedTitle || feedUrl,
+        sourceType: 'rss',
         status: 'new' as const,
         processed: false,
         published: false,

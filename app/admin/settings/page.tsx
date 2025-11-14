@@ -19,6 +19,10 @@ interface Settings {
   claudeModel: string
   analysisPrompt: string
   summaryPrompt: string
+  telegramApiId: string
+  telegramApiHash: string
+  telegramSession: string
+  telegramFetchLimit: number
 }
 
 const GEMINI_MODELS = [
@@ -82,6 +86,10 @@ export default function SettingsPage() {
     claudeModel: 'claude-sonnet-4-20250514',
     analysisPrompt: defaultAnalysisPrompt,
     summaryPrompt: defaultSummaryPrompt,
+    telegramApiId: '',
+    telegramApiHash: '',
+    telegramSession: '',
+    telegramFetchLimit: 50,
   })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -104,6 +112,10 @@ export default function SettingsPage() {
           claudeModel: result.data.claudeModel || 'claude-sonnet-4-20250514',
           analysisPrompt: result.data.analysisPrompt || defaultAnalysisPrompt,
           summaryPrompt: result.data.summaryPrompt || defaultSummaryPrompt,
+          telegramApiId: result.data.telegramApiId || '',
+          telegramApiHash: result.data.telegramApiHash || '',
+          telegramSession: result.data.telegramSession || '',
+          telegramFetchLimit: Number(result.data.telegramFetchLimit) || 50,
         })
       }
     } catch (error) {
@@ -325,6 +337,82 @@ export default function SettingsPage() {
                   <>
                     <Save className="mr-2 h-4 w-4" />
                     Сохранить настройки
+                  </>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Интеграция Telegram</CardTitle>
+              <CardDescription>
+                Настройте ключи Telegram API и session string, чтобы импортировать сообщения публичных каналов.
+                Используйте скрипт <code>npm run telegram:auth</code> для генерации session.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="telegramApiId">Telegram API ID</Label>
+                  <Input
+                    id="telegramApiId"
+                    type="number"
+                    placeholder="1234567"
+                    value={settings.telegramApiId}
+                    onChange={(e) => setSettings({ ...settings, telegramApiId: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="telegramApiHash">Telegram API Hash</Label>
+                  <Input
+                    id="telegramApiHash"
+                    type="password"
+                    placeholder="abcd1234..."
+                    value={settings.telegramApiHash}
+                    onChange={(e) => setSettings({ ...settings, telegramApiHash: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="telegramSession">Telegram Session</Label>
+                <Textarea
+                  id="telegramSession"
+                  rows={5}
+                  placeholder="Введите session string, полученный через telegram-auth"
+                  value={settings.telegramSession}
+                  onChange={(e) => setSettings({ ...settings, telegramSession: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Session string используется для авторизации. Храните его в секрете и не публикуйте в Git.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="telegramFetchLimit">Сообщений за один проход</Label>
+                <Input
+                  id="telegramFetchLimit"
+                  type="number"
+                  min={1}
+                  max={200}
+                  value={settings.telegramFetchLimit}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      telegramFetchLimit: Math.max(1, Number(e.target.value) || 1),
+                    })
+                  }
+                />
+              </div>
+
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? (
+                  <>Сохранение...</>
+                ) : (
+                  <>
+                    <Save className="mr-2 h-4 w-4" />
+                    Сохранить Telegram настройки
                   </>
                 )}
               </Button>

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { logSystemError } from '@/lib/logger'
+import { resetTelegramClient } from '@/lib/telegram/client'
 
 export async function GET() {
   try {
@@ -13,6 +14,10 @@ export async function GET() {
     const summaryPrompt = await db.getSetting('summary_prompt')
     const taxonomySystemPrompt = await db.getSetting('taxonomy_system_prompt')
     const taxonomyFormatPrompt = await db.getSetting('taxonomy_format_prompt')
+    const telegramApiId = await db.getSetting('telegram_api_id')
+    const telegramApiHash = await db.getSetting('telegram_api_hash')
+    const telegramSession = await db.getSetting('telegram_session')
+    const telegramFetchLimit = await db.getSetting('telegram_fetch_limit')
 
   const defaultAnalysisPrompt = `Ты - аналитик новостного контента. Проанализируй статьи, создай качественные саммари и оцени характеристики материала.
 
@@ -69,6 +74,10 @@ export async function GET() {
         summaryPrompt: summaryPrompt || defaultSummaryPrompt,
         taxonomySystemPrompt: taxonomySystemPrompt || defaultTaxonomySystemPrompt,
         taxonomyFormatPrompt: taxonomyFormatPrompt || defaultTaxonomyFormatPrompt,
+        telegramApiId: telegramApiId || '',
+        telegramApiHash: telegramApiHash || '',
+        telegramSession: telegramSession || '',
+        telegramFetchLimit: telegramFetchLimit ? Number(telegramFetchLimit) : 50,
       },
     })
   } catch (error) {
@@ -84,7 +93,21 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { geminiApiKey, claudeApiKey, aiProvider, geminiModel, claudeModel, analysisPrompt, summaryPrompt, taxonomySystemPrompt, taxonomyFormatPrompt } = body
+    const {
+      geminiApiKey,
+      claudeApiKey,
+      aiProvider,
+      geminiModel,
+      claudeModel,
+      analysisPrompt,
+      summaryPrompt,
+      taxonomySystemPrompt,
+      taxonomyFormatPrompt,
+      telegramApiId,
+      telegramApiHash,
+      telegramSession,
+      telegramFetchLimit,
+    } = body
 
     const apiKey = aiProvider === 'claude' ? claudeApiKey : geminiApiKey
     if (!apiKey) {
@@ -114,6 +137,32 @@ export async function POST(request: Request) {
 
     if (taxonomyFormatPrompt) {
       await db.setSetting('taxonomy_format_prompt', taxonomyFormatPrompt)
+    }
+
+    if (telegramApiId !== undefined) {
+      await db.setSetting('telegram_api_id', telegramApiId || '')
+    }
+
+    if (telegramApiHash !== undefined) {
+      await db.setSetting('telegram_api_hash', telegramApiHash || '')
+    }
+
+    if (telegramSession !== undefined) {
+      await db.setSetting('telegram_session', telegramSession || '')
+    }
+
+    if (telegramFetchLimit !== undefined) {
+      const parsedLimit = Number(telegramFetchLimit)
+      const normalizedLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 50
+      await db.setSetting('telegram_fetch_limit', String(normalizedLimit))
+    }
+
+    if (
+      telegramApiId !== undefined ||
+      telegramApiHash !== undefined ||
+      telegramSession !== undefined
+    ) {
+      await resetTelegramClient()
     }
 
     return NextResponse.json({
