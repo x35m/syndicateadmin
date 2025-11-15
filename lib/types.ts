@@ -99,6 +99,12 @@ export interface TelegramChannel {
   updatedAt: string
 }
 
+export interface PublicHomeFilters {
+  sources: string[]
+  categories: number[]
+  countries: number[]
+}
+
 export type AutomationScope = 'all' | 'selected'
 
 export interface AutomationImportConfig {

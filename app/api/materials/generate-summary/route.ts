@@ -12,40 +12,27 @@ const DEFAULT_ANALYSIS_PROMPT = `Ты - аналитик новостного к
 
 ЗАДАЧИ:
 
-1. META_DESCRIPTION (150-160 символов):
-   - Краткое описание сути статьи для SEO
-   - Нейтральный тон, максимально информативно
-   - Для поисковых систем и социальных сетей
-
-2. SUMMARY (3-5 предложений):
-   - Выдели основные моменты и ключевые идеи
-   - Профессиональный аналитический стиль
-   - Полностью нейтральное изложение без эмоциональной окраски
-   - Простой человеческий язык для комфортного восприятия
-   - ВАЖНО: Перефразируй своими словами, НЕ копируй предложения из оригинала
-   - SEO уникальность 90%+
-
-3. SENTIMENT (тональность материала):
+1. SENTIMENT (тональность материала):
    - positive (позитивная)
    - neutral (нейтральная)
    - negative (негативная)
 
-4. CONTENT_TYPE (тип контента):
+2. CONTENT_TYPE (тип контента):
    - purely_factual (новостная заметка, только факты)
    - mostly_factual (преимущественно факты с элементами анализа)
    - balanced (факты и мнения примерно поровну)
    - mostly_opinion (аналитика с мнениями)
    - purely_opinion (авторская колонка, редакционная статья)
 
-5. TAXONOMY (классификация):
+3. TAXONOMY (классификация):
    - Определи подходящие категории, а также страны и города, связанные с материалом
 
-Ответ должен быть на русском языке в формате JSON с полями: meta_description, summary, sentiment, content_type, taxonomy.`
+Ответ должен быть на русском языке в формате JSON с полями: sentiment, content_type, taxonomy.`
 
 const DEFAULT_TAXONOMY_SYSTEM_PROMPT =
   'Ты — редактор аналитического портала. Определи подходящие категории, а также страну и города статьи так, чтобы они помогали редакции быстро рубрицировать материалы.'
 const DEFAULT_TAXONOMY_FORMAT_PROMPT =
-  'Верни ответ строго в формате JSON:\n{\n  "summary": "краткое резюме на русском",\n  "taxonomy": {\n    "categories": ["Название категории"],\n    "country": "Название страны или null",\n    "city": "Название города или null"\n  }\n}\nНе добавляй пояснений. Если не удалось определить значение, используй null.'
+  'Верни ответ строго в формате JSON:\n{\n  "taxonomy": {\n    "categories": ["Название категории"],\n    "country": "Название страны или null",\n    "city": "Название города или null"\n  }\n}\nНе добавляй пояснений. Если не удалось определить значение, используй null.'
 
 type PromptType = 'category' | 'country' | 'city'
 
@@ -247,8 +234,6 @@ export async function POST(request: Request) {
       contentToAnalyze,
       'Верни ответ строго в формате JSON:',
       `{
-  "meta_description": "150-160 символов для SEO, без ссылок на статью",
-  "summary": "3-5 предложений с ключевыми фактами",
   "sentiment": "positive | neutral | negative",
   "content_type": "purely_factual | mostly_factual | balanced | mostly_opinion | purely_opinion",
   "taxonomy": {
@@ -321,8 +306,6 @@ export async function POST(request: Request) {
     }
 
     let parsedResponse: {
-      meta_description?: string
-      summary?: string
       sentiment?: 'positive' | 'neutral' | 'negative'
       content_type?:
         | 'purely_factual'
@@ -359,8 +342,6 @@ export async function POST(request: Request) {
       )
     }
 
-    const summary = sanitizeString(parsedResponse.summary)
-    const metaDescription = sanitizeString(parsedResponse.meta_description)
     const sentiment = parsedResponse.sentiment as 'positive' | 'neutral' | 'negative' | undefined
     const contentType = parsedResponse.content_type as
       | 'purely_factual'
@@ -369,22 +350,6 @@ export async function POST(request: Request) {
       | 'mostly_opinion'
       | 'purely_opinion'
       | undefined
-
-    if (!summary) {
-      console.error('Summary is missing in parsed response:', parsedResponse)
-      await logSystemError('api/materials/generate-summary', 'Missing summary in AI response', {
-        materialId,
-        provider: aiProvider,
-        phase: 'validate-json',
-      })
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Нейросеть не вернула саммари. Уточните промпт или повторите попытку.',
-        },
-        { status: 500 }
-      )
-    }
 
     const advancedCategoryResult = await runCategoryClassification({
       materialId,
@@ -586,8 +551,8 @@ export async function POST(request: Request) {
     }
 
     await db.updateMaterialSummary(materialId, {
-      summary,
-      metaDescription: metaDescription || undefined,
+      summary: null,
+      metaDescription: null,
       sentiment: sentiment || undefined,
       contentType: contentType || undefined,
       setProcessed: true,
@@ -611,8 +576,6 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       data: {
-        summary,
-        metaDescription: metaDescription || undefined,
         sentiment: sentiment || undefined,
         contentType: contentType || undefined,
         material: updatedMaterial,
@@ -627,13 +590,13 @@ export async function POST(request: Request) {
       },
     })
   } catch (error) {
-    console.error('Error generating summary and taxonomy:', error)
+    console.error('Error generating taxonomy data:', error)
     await logSystemError('api/materials/generate-summary', error, {
       materialId: materialIdForLog,
       phase: 'handler',
     })
     return NextResponse.json(
-      { success: false, error: 'Failed to generate summary' },
+      { success: false, error: 'Failed to process material' },
       { status: 500 }
     )
   }

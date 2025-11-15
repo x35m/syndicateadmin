@@ -13,7 +13,6 @@ import {
   ChevronsLeft,
   ChevronsRight,
   ExternalLink,
-  Filter,
   X,
 } from 'lucide-react'
 
@@ -26,22 +25,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 
 type RegionOption = { id: number; name: string }
@@ -64,8 +47,6 @@ export default function PublicMaterialsPage() {
   const [selectedCategories, setSelectedCategories] = useState<number[]>([])
 
   const [loading, setLoading] = useState(true)
-  const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null)
-  const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const pageSize = 25
 
@@ -304,11 +285,6 @@ export default function PublicMaterialsPage() {
     [categories, selectedCategories]
   )
 
-  const openMaterialDialog = (material: Material) => {
-    setSelectedMaterial(material)
-    setIsDialogOpen(true)
-  }
-
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
     const day = String(date.getDate()).padStart(2, '0')
@@ -345,166 +321,133 @@ export default function PublicMaterialsPage() {
 
       <div className="min-h-screen bg-background py-10">
         <div className="container space-y-6">
-          <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
-            <div className="max-w-2xl space-y-4">
-              <p className="text-muted-foreground">
-                Свежая аналитика и новости из проверенных источников
-              </p>
+          <section className="space-y-6">
+            <p className="text-muted-foreground max-w-2xl">
+              Свежая аналитика и новости из проверенных источников. Выберите одновременно несколько источников, регионов и категорий — мы покажем только материалы, которые удовлетворяют всем выбранным условиям.
+            </p>
 
-              <div className="flex flex-wrap items-center gap-2">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="min-w-[170px] justify-between">
-                    <span>Источники</span>
-                    <Badge
-                      variant={selectedSources.length > 0 ? 'default' : 'secondary'}
-                      className="ml-2"
-                    >
-                      {selectedSources.length > 0
-                        ? selectedSources.length
-                        : sourceCounts.total}
-                    </Badge>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-64">
-                  <DropdownMenuLabel>Все источники</DropdownMenuLabel>
-                  <DropdownMenuItem
-                    onSelect={() => setSelectedSources([])}
-                    className="flex items-center justify-between gap-2 text-sm"
-                  >
-                    Все источники
-                    <Badge variant="secondary">{sourceCounts.total}</Badge>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
+            <div className="space-y-4">
+              <div>
+                <p className="mb-2 text-sm font-semibold uppercase text-muted-foreground">
+                  Источники
+                </p>
+                <div className="flex flex-wrap gap-2">
                   {sourceCounts.options.length === 0 ? (
-                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                    <span className="text-xs text-muted-foreground">
                       Источники не найдены
-            </div>
+                    </span>
                   ) : (
-                    sourceCounts.options.map((option) => (
-                      <DropdownMenuCheckboxItem
-                        key={option.value}
-                        checked={selectedSources.includes(option.value)}
-                        onCheckedChange={(checked) =>
-                          handleSourceToggle(option.value, checked === true)
-                        }
-                        className="flex items-center justify-between gap-2 text-sm"
-                      >
-                        <span className="truncate">{option.label}</span>
-                        <Badge variant="secondary">{option.count}</Badge>
-                      </DropdownMenuCheckboxItem>
-                    ))
+                    sourceCounts.options.map((option) => {
+                      const isActive = selectedSources.includes(option.value)
+                      return (
+                        <Button
+                          key={option.value}
+                          variant={isActive ? 'default' : 'outline'}
+                          size="sm"
+                          className="gap-2"
+                          onClick={() =>
+                            handleSourceToggle(option.value, !isActive)
+                          }
+                        >
+                          <span>{option.label}</span>
+                          <Badge
+                            variant={isActive ? 'secondary' : 'outline'}
+                            className="text-xs"
+                          >
+                            {option.count}
+                          </Badge>
+                        </Button>
+                      )
+                    })
                   )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                </div>
+              </div>
 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="min-w-[170px] justify-between">
-                    <span>Регионы</span>
-                    <Badge
-                      variant={selectedRegions.length > 0 ? 'default' : 'secondary'}
-                      className="ml-2"
-                    >
-                      {selectedRegions.length > 0
-                        ? selectedRegions.length
-                        : regionCounts.total}
-                      </Badge>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-64">
-                  <DropdownMenuLabel>Все регионы</DropdownMenuLabel>
-                  <DropdownMenuItem
-                    onSelect={() => setSelectedRegions([])}
-                    className="flex items-center justify-between gap-2 text-sm"
-                  >
-                    Все регионы
-                    <Badge variant="secondary">{regionCounts.total}</Badge>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
+              <div>
+                <p className="mb-2 text-sm font-semibold uppercase text-muted-foreground">
+                  Регионы
+                </p>
+                <div className="flex flex-wrap gap-2">
                   {regionCounts.options.length === 0 ? (
-                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                      Нет доступных регионов
-                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      Регионы не найдены
+                    </span>
                   ) : (
-                    regionCounts.options.map((option) => (
-                    <DropdownMenuCheckboxItem
-                        key={option.value}
-                        checked={selectedRegions.includes(option.value)}
-                        onCheckedChange={(checked) =>
-                          handleRegionToggle(option.value, checked === true)
-                        }
-                        className="flex items-center justify-between gap-2 text-sm"
-                      >
-                        <span className="truncate">{option.label}</span>
-                        <Badge variant="secondary">{option.count}</Badge>
-                      </DropdownMenuCheckboxItem>
-                    ))
+                    regionCounts.options.map((option) => {
+                      const isActive = selectedRegions.includes(option.value)
+                      return (
+                        <Button
+                          key={option.value}
+                          variant={isActive ? 'default' : 'outline'}
+                          size="sm"
+                          className="gap-2"
+                          onClick={() =>
+                            handleRegionToggle(option.value, !isActive)
+                          }
+                        >
+                          <span>{option.label}</span>
+                          <Badge
+                            variant={isActive ? 'secondary' : 'outline'}
+                            className="text-xs"
+                          >
+                            {option.count}
+                          </Badge>
+                        </Button>
+                      )
+                    })
                   )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                </div>
+              </div>
 
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="min-w-[170px] justify-between">
-                    <span>Категории</span>
-                    <Badge
-                      variant={
-                        selectedCategories.length > 0 ? 'default' : 'secondary'
-                      }
-                      className="ml-2"
-                    >
-                      {selectedCategories.length > 0
-                        ? selectedCategories.length
-                        : categoryCounts.total}
-                    </Badge>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-64">
-                  <DropdownMenuLabel>Все категории</DropdownMenuLabel>
-                  <DropdownMenuItem
-                    onSelect={() => setSelectedCategories([])}
-                    className="flex items-center justify-between gap-2 text-sm"
-                  >
-                    Все категории
-                    <Badge variant="secondary">{categoryCounts.total}</Badge>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
+              <div>
+                <p className="mb-2 text-sm font-semibold uppercase text-muted-foreground">
+                  Категории
+                </p>
+                <div className="flex flex-wrap gap-2">
                   {categoryCounts.options.length === 0 ? (
-                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                    <span className="text-xs text-muted-foreground">
                       Категории не найдены
-                    </div>
+                    </span>
                   ) : (
-                    categoryCounts.options.map((option) => (
-                      <DropdownMenuCheckboxItem
-                        key={option.value}
-                        checked={selectedCategories.includes(option.value)}
-                        onCheckedChange={(checked) =>
-                          handleCategoryToggle(option.value, checked === true)
-                        }
-                        className="flex items-center justify-between gap-2 text-sm"
-                      >
-                        <span className="truncate">{option.label}</span>
-                        <Badge variant="secondary">{option.count}</Badge>
-                    </DropdownMenuCheckboxItem>
-                    ))
+                    categoryCounts.options.map((option) => {
+                      const isActive = selectedCategories.includes(option.value)
+                      return (
+                        <Button
+                          key={option.value}
+                          variant={isActive ? 'default' : 'outline'}
+                          size="sm"
+                          className="gap-2"
+                          onClick={() =>
+                            handleCategoryToggle(option.value, !isActive)
+                          }
+                        >
+                          <span>{option.label}</span>
+                          <Badge
+                            variant={isActive ? 'secondary' : 'outline'}
+                            className="text-xs"
+                          >
+                            {option.count}
+                          </Badge>
+                        </Button>
+                      )
+                    })
                   )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+                </div>
+              </div>
 
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={clearFilters}
                 disabled={!hasActiveFilters}
+                className="w-full sm:w-auto"
               >
                 Очистить фильтры
               </Button>
             </div>
-            </div>
-          </div>
+          </section>
 
-  {hasActiveFilters && (
+          {hasActiveFilters && (
             <div className="flex flex-wrap gap-2">
               {selectedSources.map((source) => (
                 <Badge key={`source-${source}`} variant="secondary" className="gap-1">
@@ -580,45 +523,59 @@ export default function PublicMaterialsPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {paginatedMaterials.map((material) => (
-                    <Card 
-                      key={material.id} 
-                      className="cursor-pointer overflow-hidden border border-transparent bg-background transition-colors duration-300 hover:bg-muted/70"
-                      onClick={() => openMaterialDialog(material)}
-                    >
-                      <CardContent className="p-6">
-                        <div className="flex flex-col gap-4 md:flex-row">
-                          {material.thumbnail && (
-                            <img 
-                              src={material.thumbnail} 
-                              alt={material.title}
-                              className="h-16 w-16 rounded object-cover md:h-20 md:w-20"
-                            />
-                          )}
+                  {paginatedMaterials.map((material) => {
+                    const primaryCategory = material.categories?.[0]
+                    const sourceName = material.feedName || material.source || 'Источник не указан'
+                    const targetUrl = material.link || material.source || '#'
+                    const hasValidLink = Boolean(material.link || material.source)
+
+                    return (
+                      <Card
+                        key={material.id}
+                        className="overflow-hidden border border-transparent bg-background transition-colors duration-300 hover:bg-muted/70"
+                      >
+                        <CardContent className="flex flex-col gap-4 p-6 md:flex-row md:items-center">
                           <div className="flex-1 space-y-2">
-                            <div className="flex flex-wrap items-center gap-2">
-                              {(material.feedName || material.source) && (
-                                <Badge variant="outline">
-                                  {material.feedName || material.source}
-                                </Badge>
+                            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                              <Badge variant="outline">{sourceName}</Badge>
+                              {primaryCategory && (
+                                <Badge variant="secondary">{primaryCategory.name}</Badge>
                               )}
-                              {material.countries?.map((country) => (
-                                <Badge key={`country-${material.id}-${country.id}`} variant="secondary">
-                                  {country.name}
-                                </Badge>
-                              ))}
+                              <span>{formatDate(material.createdAt)}</span>
                             </div>
-                            <h3 className="text-xl font-semibold leading-tight">
+                            <h3 className="text-lg font-semibold leading-snug text-foreground">
                               {material.title}
                             </h3>
-                            <p className="text-sm text-muted-foreground">
-                              {formatDate(material.createdAt)}
-                            </p>
                           </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                          <div className="flex items-center justify-end">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              asChild={hasValidLink}
+                              disabled={!hasValidLink}
+                              className="w-full justify-center md:w-auto"
+                            >
+                              {hasValidLink ? (
+                                <a
+                                  href={targetUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-2"
+                                >
+                                  Источник
+                                  <ExternalLink className="h-4 w-4" />
+                                </a>
+                              ) : (
+                                <span className="inline-flex items-center gap-2 text-muted-foreground">
+                                  Ссылка недоступна
+                                </span>
+                              )}
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )
+                  })}
                 </div>
               )}
 
@@ -682,103 +639,6 @@ export default function PublicMaterialsPage() {
         </div>
       </div>
 
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-2xl pr-8">
-              {selectedMaterial?.title}
-            </DialogTitle>
-            <DialogDescription className="space-y-2">
-              <div className="flex flex-wrap gap-4 text-sm">
-                <span>
-                  <strong>Автор:</strong> {selectedMaterial?.author || '—'}
-                </span>
-                <span>
-                  <strong>Источник:</strong>{' '}
-                  {selectedMaterial?.feedName ||
-                    selectedMaterial?.source ||
-                    '—'}
-                </span>
-                <span>
-                  <strong>Дата:</strong>{' '}
-                  {selectedMaterial && formatDate(selectedMaterial.createdAt)}
-                </span>
-              </div>
-            </DialogDescription>
-          </DialogHeader>
- 
-          {(selectedMaterial?.categories?.length ||
-            selectedMaterial?.countries?.length ||
-            selectedMaterial?.cities?.length) && (
-            <div className="mt-4 space-y-3 text-sm">
-              {selectedMaterial?.categories &&
-                selectedMaterial.categories.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium text-foreground">
-                      Категории:
-                    </span>
-                  {selectedMaterial.categories.map((category) => (
-                      <Badge
-                        key={`category-${category.id}`}
-                        variant="secondary"
-                        className="text-xs font-medium"
-                      >
-                      {category.name}
-                    </Badge>
-                  ))}
-                </div>
-              )}
-
-              {(selectedMaterial?.countries?.length ||
-                selectedMaterial?.cities?.length) && (
-                <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
-                  <span className="font-medium text-foreground">Регионы:</span>
-                  {selectedMaterial?.countries?.map((country) => (
-                    <Badge
-                      key={`dialog-country-${country.id}`}
-                      variant="outline"
-                      className="text-xs font-medium"
-                    >
-                      {country.name}
-                    </Badge>
-                  ))}
-                  {selectedMaterial?.cities?.map((city) => (
-                    <Badge
-                      key={`dialog-city-${city.id}`}
-                      variant="secondary"
-                      className="text-xs font-medium"
-                    >
-                      {city.name}
-                    </Badge>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {selectedMaterial?.summary && (
-            <div className="mt-4 text-sm leading-relaxed text-foreground whitespace-pre-wrap">
-              {selectedMaterial.summary}
-            </div>
-          )}
-          
-          {(selectedMaterial?.link || selectedMaterial?.source) && (
-            <div className="mt-6 border-t pt-4">
-              <Button variant="outline" size="sm" asChild>
-                <a 
-                  href={selectedMaterial.link || selectedMaterial.source || '#'}
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  Открыть источник
-                </a>
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </>
   )
 }

@@ -34,7 +34,6 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import {
   ExternalLink,
@@ -65,7 +64,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 
-type BulkAction = 'published' | 'archived' | 'delete' | 'generate-summary' | null
+type BulkAction = 'published' | 'archived' | 'delete' | null
 
 interface MaterialsStats {
   total: number
@@ -86,10 +85,6 @@ const initialMaterialFilters = {
 }
 
 const bulkActionMeta: Record<Exclude<BulkAction, null>, { label: string; successMessage: string }> = {
-  'generate-summary': {
-    label: 'Генерация саммари',
-    successMessage: 'Генерация завершена успешно',
-  },
   published: {
     label: 'Публикация',
     successMessage: 'Публикация завершена успешно',
@@ -262,9 +257,6 @@ export default function MaterialsPage() {
     countryIds: [] as number[],
     cityIds: [] as number[],
   })
-  const [pendingSummary, setPendingSummary] = useState('')
-  const [pendingMetaDescription, setPendingMetaDescription] = useState('')
-  const [savingContent, setSavingContent] = useState(false)
 
   const availableFeeds = useMemo(() => {
     const feeds = new Set<string>()
@@ -289,14 +281,6 @@ export default function MaterialsPage() {
     })
     return list.sort((a, b) => a.label.localeCompare(b.label, 'ru'))
   }, [taxonomy.countries])
-
-  const contentChanged = useMemo(() => {
-    if (!selectedMaterial) return false
-    return (
-      pendingSummary !== (selectedMaterial.summary ?? '') ||
-      pendingMetaDescription !== (selectedMaterial.metaDescription ?? '')
-    )
-  }, [selectedMaterial, pendingSummary, pendingMetaDescription])
 
   const filtersApplied = useMemo(() => {
     return (
@@ -642,78 +626,7 @@ export default function MaterialsPage() {
     }
 
     try {
-      if (action === 'generate-summary') {
-        for (const id of idsArray) {
-          if (bulkStopRequestedRef.current) {
-            updateProgress({
-              message: 'Остановка запрошена. Завершаем процесс...',
-            })
-            break
-          }
-
-          const material = materialsById.get(id)
-          updateMetricsMessage(`Генерация саммари: ${material?.title ?? id}`)
-          
-          try {
-            const response = await fetch('/api/materials/generate-summary', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ materialId: id }),
-            })
-            
-            const result = await response.json()
-            
-            if (!response.ok || !result.success) {
-              throw new Error(result.error || 'Не удалось сгенерировать саммари')
-            }
-
-              successCount++
-            setMaterials((prev) =>
-              prev.map((item) =>
-                item.id === id
-                  ? {
-                      ...item,
-                      summary: result.data?.summary ?? item.summary,
-                      metaDescription: result.data?.metaDescription ?? item.metaDescription,
-                      processed: true,
-                    }
-                  : item
-              )
-            )
-
-            if (selectedMaterial?.id === id) {
-              setSelectedMaterial((prev) =>
-                prev
-                  ? {
-                      ...prev,
-                      summary: result.data?.summary ?? prev.summary,
-                      metaDescription: result.data?.metaDescription ?? prev.metaDescription,
-                      processed: true,
-                    }
-                  : prev
-              )
-            }
-
-            updateMetricsMessage(`Сгенерировано саммари: ${materialsById.get(id)?.title ?? id}`)
-          } catch (error: any) {
-            failedCount++
-            const message = error instanceof Error ? error.message : String(error)
-            errors.push({
-              id,
-              title: materialsById.get(id)?.title ?? id,
-              message,
-            })
-            toast.error(`Ошибка генерации саммари для «${materialsById.get(id)?.title ?? id}»: ${message}`)
-          }
-
-          completedCount++
-          updateMetricsMessage(`Обработано ${completedCount}/${idsArray.length}`)
-        }
-
-        if (successCount > 0) {
-          await fetchTaxonomy()
-            }
-      } else if (action === 'delete') {
+      if (action === 'delete') {
         for (const id of idsArray) {
           if (bulkStopRequestedRef.current) {
             updateProgress({
@@ -797,18 +710,6 @@ export default function MaterialsPage() {
             continue
           }
 
-          if (!material.summary || material.summary.trim().length === 0) {
-            failedCount++
-            errors.push({
-              id,
-              title: material.title,
-              message: 'У материала отсутствует саммари, публикация невозможна',
-            })
-            completedCount++
-            updateMetricsMessage(`Обработано ${completedCount}/${idsArray.length}`)
-            continue
-          }
-
           try {
             await processPatch(id, { published: true })
             successCount++
@@ -862,11 +763,7 @@ export default function MaterialsPage() {
         message: error instanceof Error ? error.message : String(error),
       })
     } finally {
-      if (action === 'generate-summary') {
-        await fetchMaterials(filter, currentPage, { silent: true })
-      } else {
-        await fetchMaterials(filter, currentPage, { silent: true })
-      }
+      await fetchMaterials(filter, currentPage, { silent: true })
       setSelectedIds(new Set())
 
       const stopRequested = bulkStopRequestedRef.current
@@ -923,8 +820,6 @@ export default function MaterialsPage() {
       countryIds: material.countries?.map((item) => item.id) ?? [],
       cityIds: material.cities?.map((item) => item.id) ?? [],
     })
-    setPendingSummary(material.summary ?? '')
-    setPendingMetaDescription(material.metaDescription ?? '')
     setShowFullContent(false)
     setIsDialogOpen(true)
   }
@@ -1086,48 +981,31 @@ export default function MaterialsPage() {
     if (!selectedMaterial) return
 
     try {
-      setSavingContent(true)
       setSavingTaxonomy(true)
 
-      const promises: Promise<any>[] = []
+      const response = await fetch('/api/materials/taxonomy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          materialId: selectedMaterial.id,
+          categoryIds: pendingTaxonomy.categoryIds.slice(0, 1),
+          countryIds: pendingTaxonomy.countryIds,
+          cityIds: pendingTaxonomy.cityIds,
+        }),
+      })
 
-      if (contentChanged) {
-        promises.push(
-          patchMaterial(selectedMaterial.id, {
-            summary: pendingSummary,
-            metaDescription: pendingMetaDescription,
-          })
-        )
+      const result = await response.json()
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Не удалось сохранить таксономию')
       }
 
-      promises.push(
-        fetch('/api/materials/taxonomy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            materialId: selectedMaterial.id,
-            categoryIds: pendingTaxonomy.categoryIds.slice(0, 1),
-            countryIds: pendingTaxonomy.countryIds,
-            cityIds: pendingTaxonomy.cityIds,
-          }),
-        }).then(async (response) => {
-          const result = await response.json()
-          if (!response.ok || !result.success) {
-            throw new Error(result.error || 'Не удалось сохранить таксономию')
-          }
-          return result.data as Material
-        })
-      )
-
-      const [, updatedMaterial] = await Promise.all(promises)
+      const updatedMaterial: Material | undefined = result.data
 
       if (updatedMaterial) {
-        setMaterials((prev) => prev.map((item) => (item.id === updatedMaterial.id ? updatedMaterial : item)))
-        setSelectedMaterial({
-          ...updatedMaterial,
-          summary: pendingSummary,
-          metaDescription: pendingMetaDescription,
-        })
+        setMaterials((prev) =>
+          prev.map((item) => (item.id === updatedMaterial.id ? updatedMaterial : item))
+        )
+        setSelectedMaterial(updatedMaterial)
         setPendingTaxonomy({
           categoryIds: updatedMaterial.categories?.length
             ? [updatedMaterial.categories[0].id]
@@ -1135,21 +1013,14 @@ export default function MaterialsPage() {
           countryIds: updatedMaterial.countries?.map((item: Country) => item.id) ?? [],
           cityIds: updatedMaterial.cities?.map((item: City) => item.id) ?? [],
         })
-      } else {
-        setSelectedMaterial((prev) =>
-          prev && prev.id === selectedMaterial.id
-            ? { ...prev, summary: pendingSummary, metaDescription: pendingMetaDescription }
-            : prev
-        )
       }
 
       await fetchMaterials(filter, currentPage, { silent: true })
-      toast.success('Материал сохранён')
+      toast.success('Таксономия сохранена')
     } catch (error) {
       console.error('Error saving material:', error)
-      toast.error('Не удалось сохранить материал')
+      toast.error('Не удалось сохранить таксономию')
     } finally {
-      setSavingContent(false)
       setSavingTaxonomy(false)
     }
   }
@@ -1176,8 +1047,6 @@ export default function MaterialsPage() {
         
         // Обновляем selectedMaterial
         setSelectedMaterial(updatedMaterial)
-        setPendingSummary(updatedMaterial.summary ?? '')
-        setPendingMetaDescription(updatedMaterial.metaDescription ?? '')
         
         // Обновляем pendingTaxonomy с новыми значениями
         setPendingTaxonomy({
@@ -1232,8 +1101,6 @@ export default function MaterialsPage() {
       const updated: Material = result.data
       setMaterials((prev) => prev.map((item) => (item.id === updated.id ? updated : item)))
       setSelectedMaterial(updated)
-      setPendingSummary(updated.summary ?? '')
-      setPendingMetaDescription(updated.metaDescription ?? '')
       setPendingTaxonomy({
         categoryIds: updated.categories?.length ? [updated.categories[0].id] : [],
         countryIds: updated.countries?.map((item: Country) => item.id) ?? [],
@@ -1305,15 +1172,6 @@ export default function MaterialsPage() {
           description: `Вы уверены, что хотите удалить ${count} материал(ов)? Это действие необратимо!`,
           actionText: 'Удалить',
           variant: 'destructive' as const,
-        }
-      case 'generate-summary':
-        return {
-          title: 'Генерация саммари',
-          description: count === 1 
-            ? 'Сгенерировать саммари для этого материала?' 
-            : `Сгенерировать саммари для ${count} материалов?`,
-          actionText: 'Сгенерировать',
-          variant: 'default' as const,
         }
       default:
         return null
@@ -1462,14 +1320,6 @@ export default function MaterialsPage() {
                       >
                         <CheckCircle className="mr-2 h-4 w-4" />
                         Опубликовать
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => handleBulkActionClick('generate-summary')}
-                      >
-                        <Sparkles className="mr-2 h-4 w-4" />
-                        Саммари
                       </Button>
                       <Button
                         size="sm"
@@ -1953,39 +1803,6 @@ export default function MaterialsPage() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Мета описание
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {pendingMetaDescription.length}/160
-                    </span>
-                </div>
-                  <Textarea
-                    value={pendingMetaDescription}
-                    onChange={(event) => setPendingMetaDescription(event.target.value)}
-                    maxLength={160}
-                    rows={3}
-                    placeholder="Краткое описание статьи"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Саммари
-                    </span>
-                    {selectedMaterial?.summary && <Badge variant="secondary">AI</Badge>}
-                  </div>
-                  <Textarea
-                    value={pendingSummary}
-                    onChange={(event) => setPendingSummary(event.target.value)}
-                    rows={6}
-                    placeholder="Краткое саммари на 3-5 предложений"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Категории публикации
                     </span>
                   </div>
@@ -2031,7 +1848,7 @@ export default function MaterialsPage() {
                   variant="outline"
                   size="sm"
                   onClick={() => setShowFullContent((prev) => !prev)}
-                  className="w-full sm:w-56"
+                  className="w-full"
                 >
                   {showFullContent ? 'Скрыть полный текст' : 'Показать полный текст'}
                 </Button>
@@ -2310,10 +2127,10 @@ export default function MaterialsPage() {
                 </Button>
                 <Button
                   onClick={handleSaveMaterial}
-                  disabled={savingContent || savingTaxonomy || taxonomyLoading}
+                  disabled={savingTaxonomy || taxonomyLoading}
                   className="w-full sm:w-56"
                 >
-                  {savingContent || savingTaxonomy ? 'Сохранение...' : 'Сохранить'}
+                  {savingTaxonomy ? 'Сохранение...' : 'Сохранить'}
                 </Button>
               </div>
 

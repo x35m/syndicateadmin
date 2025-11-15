@@ -15,6 +15,7 @@ export function AdminHeader() {
     { href: '/admin', label: 'Дашборд' },
     { href: '/admin/materials', label: 'Материалы' },
     { href: '/admin/rss', label: 'RSS фиды' },
+    { href: '/admin/home-settings', label: 'Главная' },
     { href: '/admin/telegram', label: 'Telegram' },
     { href: '/admin/automation', label: 'Автоматизация' },
     { href: '/admin/taxonomy', label: 'Справочники' },

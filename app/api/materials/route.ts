@@ -110,20 +110,9 @@ export async function PATCH(request: NextRequest) {
     }
 
     const summaryUpdates: {
-      summary?: string
-      metaDescription?: string
+      summary?: string | null
+      metaDescription?: string | null
     } = {}
-
-    const normalizedSummary =
-      typeof summary === 'string' ? summary.trim() : undefined
-
-    if (typeof summary === 'string') {
-      summaryUpdates.summary = summary
-    }
-
-    if (typeof metaDescription === 'string') {
-      summaryUpdates.metaDescription = metaDescription
-    }
 
     let nextProcessed =
       typeof processed === 'boolean' ? processed : material.processed
@@ -134,15 +123,6 @@ export async function PATCH(request: NextRequest) {
       typeof status === 'string' && status.trim().length > 0
         ? (status.trim() as Material['status'])
         : undefined
-
-    if (normalizedSummary !== undefined) {
-      if (normalizedSummary.length === 0) {
-        nextProcessed = false
-        nextPublished = false
-      } else {
-        nextProcessed = true
-      }
-    }
 
     if (statusFromPayload) {
       switch (statusFromPayload) {
@@ -167,20 +147,6 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (nextPublished) {
-      const effectiveSummary =
-        normalizedSummary !== undefined
-          ? normalizedSummary
-          : (material.summary ?? '').trim()
-
-      if (!effectiveSummary) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: 'Нельзя опубликовать материал без саммари',
-          },
-          { status: 400 }
-        )
-      }
       nextProcessed = true
     }
 
@@ -233,7 +199,7 @@ export async function PATCH(request: NextRequest) {
       await db.updateMaterialAttributes(id, attributeUpdates)
     }
 
-    if (Object.keys(summaryUpdates).length > 0) {
+    if (summaryUpdates.summary !== undefined || summaryUpdates.metaDescription !== undefined) {
       await db.updateMaterialSummary(id, summaryUpdates)
     }
 

@@ -727,6 +727,17 @@ export class DatabaseService {
     }
   }
 
+  async getDistinctSourceNames(): Promise<string[]> {
+    const result = await pool.query(
+      `SELECT DISTINCT COALESCE(NULLIF(f.title, ''), NULLIF(m.source, '')) AS name
+       FROM materials m
+       LEFT JOIN feeds f ON m.source = f.url
+       WHERE COALESCE(NULLIF(f.title, ''), NULLIF(m.source, '')) IS NOT NULL
+       ORDER BY 1 ASC`
+    )
+    return result.rows.map((row) => row.name as string)
+  }
+
   async createTaxonomyItem(
     type: 'category' | 'country' | 'city',
     name: string,
@@ -1283,8 +1294,8 @@ export class DatabaseService {
   async updateMaterialSummary(
     id: string,
     data: {
-      summary?: string
-      metaDescription?: string
+      summary?: string | null
+      metaDescription?: string | null
       sentiment?: 'positive' | 'neutral' | 'negative'
       contentType?: 'purely_factual' | 'mostly_factual' | 'balanced' | 'mostly_opinion' | 'purely_opinion'
       setProcessed?: boolean

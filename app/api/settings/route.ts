@@ -11,7 +11,6 @@ export async function GET() {
     const geminiModel = await db.getSetting('gemini_model') || 'gemini-2.5-flash'
     const claudeModel = await db.getSetting('claude_model') || 'claude-sonnet-4-20250514'
     const analysisPrompt = await db.getSetting('analysis_prompt')
-    const summaryPrompt = await db.getSetting('summary_prompt')
     const taxonomySystemPrompt = await db.getSetting('taxonomy_system_prompt')
     const taxonomyFormatPrompt = await db.getSetting('taxonomy_format_prompt')
     const telegramApiId = await db.getSetting('telegram_api_id')
@@ -19,48 +18,33 @@ export async function GET() {
     const telegramSession = await db.getSetting('telegram_session')
     const telegramFetchLimit = await db.getSetting('telegram_fetch_limit')
 
-  const defaultAnalysisPrompt = `Ты - аналитик новостного контента. Проанализируй статьи, создай качественные саммари и оцени характеристики материала.
+  const defaultAnalysisPrompt = `Ты - аналитик новостного контента. Проанализируй статьи и оцени характеристики материала.
 
 ЗАДАЧИ:
 
-1. META_DESCRIPTION (150-160 символов):
-   - Краткое описание сути статьи для SEO
-   - Нейтральный тон, максимально информативно
-   - Для поисковых систем и социальных сетей
-
-2. SUMMARY (3-5 предложений):
-   - Выдели основные факты и ключевые идеи
-   - Профессиональный аналитический стиль
-   - Полностью нейтральное изложение без эмоциональной окраски
-   - Простой человеческий язык для комфортного восприятия
-   - ВАЖНО: Перефразируй своими словами, НЕ копируй предложения из оригинала
-   - SEO уникальность 90%+
-
-3. SENTIMENT (тональность материала):
+1. SENTIMENT (тональность материала):
    - positive (позитивная)
    - neutral (нейтральная)
    - negative (негативная)
 
-4. CONTENT_TYPE (тип контента):
+2. CONTENT_TYPE (тип контента):
    - purely_factual (новостная заметка, только факты)
    - mostly_factual (преимущественно факты с элементами анализа)
    - balanced (факты и мнения примерно поровну)
    - mostly_opinion (аналитика с мнениями)
    - purely_opinion (авторская колонка, редакционная статья)
 
-5. TAXONOMY (классификация):
+3. TAXONOMY (классификация):
    - Определи подходящие категории, а также страны и города, связанные с материалом
 
 ПРИНЦИПЫ:
 - Пиши напрямую, не ссылайся на статью («В материале говорится…»)
 - Максимально информативно и нейтрально
 - Избегай клише и оценочных суждений`
-    const defaultSummaryPrompt =
-      'Создай краткое саммари следующей статьи. Выдели основные моменты и ключевые идеи. Ответ должен быть на русском языке, лаконичным и информативным (3-5 предложений).'
     const defaultTaxonomySystemPrompt =
       'Ты — редактор аналитического портала. Определи подходящие категории, а также страну и города статьи так, чтобы они помогали редакции быстро рубрицировать материалы.'
     const defaultTaxonomyFormatPrompt =
-      'Верни ответ строго в формате JSON:\n{\n  "summary": "краткое резюме на русском",\n  "taxonomy": {\n    "categories": ["Название категории"],\n    "country": "Название страны или null",\n    "city": "Название города или null"\n  }\n}\nНе добавляй пояснений. Если не удалось определить значение, используй null.'
+      'Верни ответ строго в формате JSON:\n{\n  "taxonomy": {\n    "categories": ["Название категории"],\n    "country": "Название страны или null",\n    "city": "Название города или null"\n  }\n}\nНе добавляй пояснений. Если не удалось определить значение, используй null.'
 
     return NextResponse.json({
       success: true,
@@ -71,7 +55,6 @@ export async function GET() {
         geminiModel: geminiModel || 'gemini-2.5-flash',
         claudeModel: claudeModel || 'claude-sonnet-4-20250514',
         analysisPrompt: analysisPrompt || defaultAnalysisPrompt,
-        summaryPrompt: summaryPrompt || defaultSummaryPrompt,
         taxonomySystemPrompt: taxonomySystemPrompt || defaultTaxonomySystemPrompt,
         taxonomyFormatPrompt: taxonomyFormatPrompt || defaultTaxonomyFormatPrompt,
         telegramApiId: telegramApiId || '',
@@ -100,7 +83,6 @@ export async function POST(request: Request) {
       geminiModel,
       claudeModel,
       analysisPrompt,
-      summaryPrompt,
       taxonomySystemPrompt,
       taxonomyFormatPrompt,
       telegramApiId,
@@ -127,9 +109,6 @@ export async function POST(request: Request) {
       await db.setSetting('analysis_prompt', analysisPrompt)
     }
     
-    if (summaryPrompt) {
-      await db.setSetting('summary_prompt', summaryPrompt)
-    }
 
     if (taxonomySystemPrompt) {
       await db.setSetting('taxonomy_system_prompt', taxonomySystemPrompt)

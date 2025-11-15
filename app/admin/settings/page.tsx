@@ -18,7 +18,6 @@ interface Settings {
   geminiModel: string
   claudeModel: string
   analysisPrompt: string
-  summaryPrompt: string
   telegramApiId: string
   telegramApiHash: string
   telegramSession: string
@@ -39,45 +38,29 @@ const CLAUDE_MODELS = [
 ]
 
 export default function SettingsPage() {
-  const defaultAnalysisPrompt = `Ты - аналитик новостного контента. Проанализируй статьи, создай качественные саммари и оцени характеристики материала.
+  const defaultAnalysisPrompt = `Ты - аналитик новостного контента. Проанализируй статьи и оцени характеристики материала.
 
 ЗАДАЧИ:
 
-1. META_DESCRIPTION (150-160 символов):
-   - Краткое описание сути статьи для SEO
-   - Нейтральный тон, максимально информативно
-   - Для поисковых систем и социальных сетей
-
-2. SUMMARY (3-5 предложений):
-   - Выдели основные факты и ключевые идеи
-   - Профессиональный аналитический стиль
-   - Полностью нейтральное изложение без эмоциональной окраски
-   - Простой человеческий язык для комфортного восприятия
-   - ВАЖНО: Перефразируй своими словами, НЕ копируй предложения из оригинала
-   - SEO уникальность 90%+
-
-3. SENTIMENT (тональность материала):
+1. SENTIMENT (тональность материала):
    - positive (позитивная)
    - neutral (нейтральная)
    - negative (негативная)
 
-4. CONTENT_TYPE (тип контента):
+2. CONTENT_TYPE (тип контента):
    - purely_factual (новостная заметка, только факты)
    - mostly_factual (преимущественно факты с элементами анализа)
    - balanced (факты и мнения примерно поровну)
    - mostly_opinion (аналитика с мнениями)
    - purely_opinion (авторская колонка, редакционная статья)
 
-5. TAXONOMY (классификация):
+3. TAXONOMY (классификация):
    - Определи подходящие категории, а также страны и города, связанные с материалом
 
 ПРИНЦИПЫ:
 - Пиши напрямую, не ссылайся на статью («В материале говорится…»)
 - Максимально информативно и нейтрально
 - Избегай клише и оценочных суждений`
-  const defaultSummaryPrompt =
-    'Создай краткое саммари следующей статьи. Выдели основные моменты и ключевые идеи. Ответ должен быть на русском языке, лаконичным и информативным (3-5 предложений).'
-
   const [settings, setSettings] = useState<Settings>({
     geminiApiKey: '',
     claudeApiKey: '',
@@ -85,7 +68,6 @@ export default function SettingsPage() {
     geminiModel: 'gemini-2.5-flash',
     claudeModel: 'claude-sonnet-4-20250514',
     analysisPrompt: defaultAnalysisPrompt,
-    summaryPrompt: defaultSummaryPrompt,
     telegramApiId: '',
     telegramApiHash: '',
     telegramSession: '',
@@ -111,7 +93,6 @@ export default function SettingsPage() {
           geminiModel: result.data.geminiModel || 'gemini-2.5-flash',
           claudeModel: result.data.claudeModel || 'claude-sonnet-4-20250514',
           analysisPrompt: result.data.analysisPrompt || defaultAnalysisPrompt,
-          summaryPrompt: result.data.summaryPrompt || defaultSummaryPrompt,
           telegramApiId: result.data.telegramApiId || '',
           telegramApiHash: result.data.telegramApiHash || '',
           telegramSession: result.data.telegramSession || '',
@@ -326,7 +307,7 @@ export default function SettingsPage() {
                   }
                 />
                 <p className="text-xs text-muted-foreground">
-                  Этот промпт используется для генерации meta_description, summary, sentiment и content_type
+                  Этот промпт используется для оценки sentiment, content_type и подсказок по таксономии
                 </p>
               </div>
 
