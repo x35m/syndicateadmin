@@ -1,4 +1,8 @@
 node_modules/
+.next/
 .DS_Store
 telegram_session*
 tsconfig.tsbuildinfo
+.env*
+syndicateadmin_backup.sql
+syndicate.tar.gz
