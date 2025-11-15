@@ -70,6 +70,7 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
   const [bulkActionLoading, setBulkActionLoading] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
+  const [search, setSearch] = useState('')
 
   const fetchFeeds = async () => {
     try {
@@ -89,6 +90,7 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
       }
     } catch (error) {
       console.error('Error fetching feeds:', error)
+      toast.error('Не удалось загрузить список фидов')
     } finally {
       setLoading(false)
     }
@@ -97,6 +99,10 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
   useEffect(() => {
     fetchFeeds()
   }, [])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [search])
 
   const handleAddFeed = async () => {
     if (!newFeedUrl.trim()) {
@@ -293,19 +299,28 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
     }
   }
 
-  // Pagination logic
-  const totalPages = Math.ceil(feeds.length / pageSize)
+  const filteredFeeds = feeds.filter((feed) => {
+    if (!search.trim()) return true
+    const term = search.trim().toLowerCase()
+    return (
+      (feed.title && feed.title.toLowerCase().includes(term)) ||
+      (feed.name && feed.name.toLowerCase().includes(term)) ||
+      (feed.feedName && feed.feedName.toLowerCase().includes(term)) ||
+      (feed.url && feed.url.toLowerCase().includes(term))
+    )
+  })
+  const totalPages = Math.ceil(filteredFeeds.length / pageSize) || 1
   const startIndex = (currentPage - 1) * pageSize
   const endIndex = startIndex + pageSize
-  const paginatedFeeds = feeds.slice(startIndex, endIndex)
+  const paginatedFeeds = filteredFeeds.slice(startIndex, endIndex)
 
-  const goToPage = (page: number) => {
-    setCurrentPage(Math.max(1, Math.min(page, totalPages)))
+  const goToPage = (page: number, total: number) => {
+    setCurrentPage(Math.max(1, Math.min(page, total)))
   }
 
   const changePageSize = (newSize: number) => {
     setPageSize(newSize)
-    setCurrentPage(1) // Reset to first page when changing page size
+    setCurrentPage(1)
   }
 
   const toggleSelectAll = () => {
@@ -371,31 +386,52 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
     <>
       <Card>
         <CardHeader>
-          <div className="flex justify-between items-center">
-            <div>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-1">
               <CardTitle>Управление RSS фидами</CardTitle>
               <CardDescription className="mt-1">
                 Последняя синхронизация: {formatDate(lastSync)}
               </CardDescription>
             </div>
-            <Button
-              size="sm"
-              onClick={() => setIsAddDialogOpen(true)}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Добавить фид
-            </Button>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="flex items-center gap-2">
+                <Input
+                  placeholder="Поиск по названию или URL..."
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  className="w-full sm:w-64"
+                />
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    setSearch('')
+                    setCurrentPage(1)
+                  }}
+                  title="Сбросить фильтр"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => setIsAddDialogOpen(true)}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Добавить фид
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
           {/* Pagination Controls - Top */}
-          {!loading && feeds.length > 0 && (
+          {!loading && filteredFeeds.length > 0 && (
             <div className="flex items-center justify-between mb-4 pb-4 border-b">
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">
-                  Показано {startIndex + 1}-{Math.min(endIndex, feeds.length)} из {feeds.length}
-                </span>
-              </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">
+                    Показано {startIndex + 1}-{Math.min(endIndex, filteredFeeds.length)} из {filteredFeeds.length}
+                  </span>
+                </div>
 
               <div className="flex items-center gap-4">
                 {/* Page Size Selector */}
@@ -421,7 +457,7 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => goToPage(1)}
+                    onClick={() => goToPage(1, totalPages)}
                     disabled={currentPage === 1}
                     className="h-8 w-8 p-0"
                     title="Первая страница"
@@ -431,7 +467,7 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => goToPage(currentPage - 1)}
+                    onClick={() => goToPage(currentPage - 1, totalPages)}
                     disabled={currentPage === 1}
                     className="h-8 w-8 p-0"
                     title="Предыдущая страница"
@@ -446,7 +482,7 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => goToPage(currentPage + 1)}
+                    onClick={() => goToPage(currentPage + 1, totalPages)}
                     disabled={currentPage === totalPages}
                     className="h-8 w-8 p-0"
                     title="Следующая страница"
@@ -456,7 +492,7 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => goToPage(totalPages)}
+                    onClick={() => goToPage(totalPages, totalPages)}
                     disabled={currentPage === totalPages}
                     className="h-8 w-8 p-0"
                     title="Последняя страница"
@@ -481,9 +517,9 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
                 </div>
               ))}
             </div>
-          ) : feeds.length === 0 ? (
+          ) : filteredFeeds.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              Фиды не найдены. Добавьте первый фид!
+              Фиды не найдены. Попробуйте изменить поиск или добавьте новый фид.
             </div>
           ) : (
             <Table>
@@ -619,11 +655,11 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
           )}
 
           {/* Pagination Controls */}
-          {!loading && feeds.length > 0 && (
+          {!loading && filteredFeeds.length > 0 && (
             <div className="flex items-center justify-between mt-4 pt-4 border-t">
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">
-                  Показано {startIndex + 1}-{Math.min(endIndex, feeds.length)} из {feeds.length}
+                  Показано {startIndex + 1}-{Math.min(endIndex, filteredFeeds.length)} из {filteredFeeds.length}
                 </span>
               </div>
 
@@ -651,7 +687,7 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => goToPage(1)}
+                    onClick={() => goToPage(1, totalPages)}
                     disabled={currentPage === 1}
                     className="h-8 w-8 p-0"
                     title="Первая страница"
@@ -661,7 +697,7 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => goToPage(currentPage - 1)}
+                    onClick={() => goToPage(currentPage - 1, totalPages)}
                     disabled={currentPage === 1}
                     className="h-8 w-8 p-0"
                     title="Предыдущая страница"
@@ -676,7 +712,7 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => goToPage(currentPage + 1)}
+                    onClick={() => goToPage(currentPage + 1, totalPages)}
                     disabled={currentPage === totalPages}
                     className="h-8 w-8 p-0"
                     title="Следующая страница"
@@ -686,7 +722,7 @@ export function FeedManager({ lastSync }: FeedManagerProps) {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => goToPage(totalPages)}
+                    onClick={() => goToPage(totalPages, totalPages)}
                     disabled={currentPage === totalPages}
                     className="h-8 w-8 p-0"
                     title="Последняя страница"
