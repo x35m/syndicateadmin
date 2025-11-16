@@ -20,7 +20,8 @@ export function AdminHeader() {
     { href: '/admin/automation', label: 'Автоматизация' },
     { href: '/admin/taxonomy', label: 'Справочники' },
     { href: '/admin/logs', label: 'Логи' },
-    { href: '/admin/settings', label: 'AI' },
+    { href: '/admin/ai', label: 'AI' },
+    { href: '/admin/telegram-settings', label: 'Telegram настройки' },
   ]
 
   const handleLogout = async () => {

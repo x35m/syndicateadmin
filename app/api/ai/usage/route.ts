@@ -4,14 +4,24 @@ import { logSystemError } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const settings = await db.getSettings()
-    const provider = settings['ai_provider'] || 'gemini'
-    const model =
-      provider === 'claude'
-        ? settings['claude_model'] || 'claude-sonnet-4-20250514'
-        : settings['gemini_model'] || 'gemini-2.5-flash'
+    const url = new URL(request.url)
+    const providerParam = url.searchParams.get('provider')
+    const modelParam = url.searchParams.get('model')
+
+    let provider = providerParam || 'gemini'
+    let model = modelParam || 'gemini-2.5-flash'
+
+    if (!providerParam || !modelParam) {
+      const settings = await db.getSettings()
+      provider = providerParam || settings['ai_provider'] || 'gemini'
+      model =
+        modelParam ||
+        (provider === 'claude'
+          ? settings['claude_model'] || 'claude-sonnet-4-20250514'
+          : settings['gemini_model'] || 'gemini-2.5-flash')
+    }
 
     const summary = await db.getAiUsageSummary()
 
