@@ -31,6 +31,7 @@ interface HomeSettingsResponse {
     categories: CountedOption[]
     countries: CountedOption[]
   }
+  error?: string
 }
 
 export default function HomeSettingsPage() {
