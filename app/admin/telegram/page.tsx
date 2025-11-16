@@ -412,13 +412,19 @@ export default function TelegramChannelsPage() {
                           size="sm"
                           onClick={() => handleRefreshChannel(channel)}
                           disabled={refreshingId === channel.id}
+                          title="Загрузить новые материалы из канала"
                         >
                           {refreshingId === channel.id ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Загрузка...
+                            </>
                           ) : (
-                            <RefreshCw className="mr-2 h-4 w-4" />
+                            <>
+                              <RefreshCw className="mr-2 h-4 w-4" />
+                              Загрузить новые материалы
+                            </>
                           )}
-                          Обновить
                         </Button>
                         <Button
                           variant="destructive"
