@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { logSystemError } from '@/lib/logger'
 import { syncTelegramChannels } from '@/lib/telegram/service'
+import { resetTelegramClient } from '@/lib/telegram/client'
 
 interface RouteParams {
   params: {
@@ -21,6 +22,8 @@ export async function POST(_: Request, { params }: RouteParams) {
       return NextResponse.json({ success: false, error: 'Канал не найден' }, { status: 404 })
     }
 
+    // Ensure we use the latest saved credentials (session) immediately
+    await resetTelegramClient()
     const result = await syncTelegramChannels({ channel })
 
     return NextResponse.json({
