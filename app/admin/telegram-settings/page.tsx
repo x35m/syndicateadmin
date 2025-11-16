@@ -97,7 +97,7 @@ export default function TelegramSettingsPage() {
                   <Label htmlFor="telegramApiHash">Telegram API Hash</Label>
                   <Input
                     id="telegramApiHash"
-                    type="password"
+                    type="text"
                     placeholder="abcd1234..."
                     value={telegramApiHash}
                     onChange={(e) => setTelegramApiHash(e.target.value)}
@@ -109,7 +109,7 @@ export default function TelegramSettingsPage() {
                 <Label htmlFor="telegramSession">Telegram Session</Label>
                 <Input
                   id="telegramSession"
-                  type="password"
+                  type="text"
                   placeholder="1AAgb...."
                   value={telegramSession}
                   onChange={(e) => setTelegramSession(e.target.value)}
@@ -140,6 +140,26 @@ export default function TelegramSettingsPage() {
                   </>
                 )}
               </Button>
+              <div className="pt-2">
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      const resp = await fetch('/api/telegram/reset', { method: 'POST' })
+                      const result = await resp.json()
+                      if (resp.ok && result.success) {
+                        toast.success('Клиент Telegram перезапущен')
+                      } else {
+                        toast.error(result.error || 'Не удалось перезапустить клиент')
+                      }
+                    } catch {
+                      toast.error('Ошибка при перезапуске клиента')
+                    }
+                  }}
+                >
+                  Перезапустить клиент Telegram
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
