@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { toast } from 'sonner'
 import { Save, ChevronDown } from 'lucide-react'
+import { useCallback } from 'react'
 
 interface Settings {
   geminiApiKey: string
@@ -75,9 +76,21 @@ export default function SettingsPage() {
   })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [usage, setUsage] = useState<{
+    provider: string
+    model: string
+    limits: { provider: string; model: string; freeTier: string; paidTier: string; notes: string }
+    usage: {
+      totals: { calls: number; tokensIn: number; tokensOut: number }
+      last24h: { calls: number; tokensIn: number; tokensOut: number }
+      last7d: { calls: number; tokensIn: number; tokensOut: number }
+      byAction: Array<{ action: string; calls: number }>
+    }
+  } | null>(null)
 
   useEffect(() => {
     fetchSettings()
+    fetchUsage()
   }, [])
 
   const fetchSettings = async () => {
@@ -105,6 +118,18 @@ export default function SettingsPage() {
       setLoading(false)
     }
   }
+
+  const fetchUsage = useCallback(async () => {
+    try {
+      const resp = await fetch('/api/ai/usage', { cache: 'no-store' })
+      const result = await resp.json()
+      if (resp.ok && result.success) {
+        setUsage(result.data)
+      }
+    } catch (e) {
+      // noop
+    }
+  }, [])
 
   const handleSave = async () => {
     const apiKey = settings.aiProvider === 'claude' ? settings.claudeApiKey : settings.geminiApiKey
@@ -155,9 +180,9 @@ export default function SettingsPage() {
       <div className="min-h-screen bg-background p-8">
         <div className="container max-w-4xl space-y-6">
           <div>
-            <h1 className="text-3xl font-bold">Настройки</h1>
+            <h1 className="text-3xl font-bold">AI</h1>
             <p className="text-muted-foreground mt-2">
-              Настройте интеграцию с AI для генерации анализа статей
+              Управление провайдерами AI и контроль расхода токенов
             </p>
           </div>
 
@@ -165,7 +190,7 @@ export default function SettingsPage() {
             <CardHeader>
               <CardTitle>AI Провайдер</CardTitle>
               <CardDescription>
-                Выберите провайдера AI для анализа статей
+                Выберите провайдера AI для анализа таксономии/характеристик
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -326,6 +351,18 @@ export default function SettingsPage() {
 
           <Card>
             <CardHeader>
+              <CardTitle>Расход токенов и вызовы</CardTitle>
+              <CardDescription>
+                Сводка по использованию AI: количество вызовов и (если доступно) расход токенов
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <AiUsageSection />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
               <CardTitle>Интеграция Telegram</CardTitle>
               <CardDescription>
                 Настройте ключи Telegram API и session string, чтобы импортировать сообщения публичных каналов.
@@ -402,6 +439,97 @@ export default function SettingsPage() {
         </div>
       </div>
     </>
+  )
+}
+
+function AiUsageSection() {
+  const [data, setData] = useState<null | {
+    provider: string
+    model: string
+    limits: { provider: string; model: string; freeTier: string; paidTier: string; notes: string }
+    usage: {
+      totals: { calls: number; tokensIn: number; tokensOut: number }
+      last24h: { calls: number; tokensIn: number; tokensOut: number }
+      last7d: { calls: number; tokensIn: number; tokensOut: number }
+      byAction: Array<{ action: string; calls: number }>
+    }
+  }>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const resp = await fetch('/api/ai/usage', { cache: 'no-store' })
+        const result = await resp.json()
+        if (resp.ok && result.success) {
+          setData(result.data)
+        }
+      } catch {
+        // ignore
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="space-y-2">
+        <Skeleton className="h-5 w-48" />
+        <Skeleton className="h-10 w-full" />
+      </div>
+    )
+  }
+
+  if (!data) {
+    return <div className="text-sm text-muted-foreground">Не удалось загрузить usage</div>
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="text-sm text-muted-foreground">
+        Провайдер: <span className="text-foreground font-medium">{data.provider}</span> · Модель:{' '}
+        <span className="text-foreground font-medium">{data.model}</span>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-md border p-3">
+          <div className="text-xs text-muted-foreground">Всего вызовов</div>
+          <div className="text-2xl font-semibold">{data.usage.totals.calls}</div>
+        </div>
+        <div className="rounded-md border p-3">
+          <div className="text-xs text-muted-foreground">За 24 часа</div>
+          <div className="text-2xl font-semibold">{data.usage.last24h.calls}</div>
+        </div>
+        <div className="rounded-md border p-3">
+          <div className="text-xs text-muted-foreground">За 7 дней</div>
+          <div className="text-2xl font-semibold">{data.usage.last7d.calls}</div>
+        </div>
+      </div>
+      <div className="rounded-md border p-3">
+        <div className="text-sm font-medium mb-2">Действия</div>
+        {data.usage.byAction.length === 0 ? (
+          <div className="text-sm text-muted-foreground">Нет данных</div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {data.usage.byAction.map((row) => (
+              <Button key={row.action} size="sm" variant="outline" className="gap-2">
+                <span>{row.action}</span>
+                <Badge variant="secondary">{row.calls}</Badge>
+              </Button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="rounded-md border p-3 space-y-1 text-sm">
+        <div className="text-sm font-medium">Квоты и лимиты</div>
+        <div>Провайдер: {data.limits.provider}</div>
+        <div>Модель: {data.limits.model}</div>
+        <div>Бесплатный тариф: {data.limits.freeTier}</div>
+        <div>Платный тариф: {data.limits.paidTier}</div>
+        <div className="text-muted-foreground">Примечание: {data.limits.notes}</div>
+      </div>
+    </div>
   )
 }
 

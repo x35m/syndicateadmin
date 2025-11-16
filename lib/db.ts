@@ -354,6 +354,19 @@ export class DatabaseService {
         CREATE INDEX IF NOT EXISTS idx_materials_summary ON materials(summary) WHERE summary IS NOT NULL
       `)
 
+      // Таблица учета расхода AI токенов/вызовов
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS ai_usage (
+          id SERIAL PRIMARY KEY,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+          provider TEXT NOT NULL,
+          model TEXT NOT NULL,
+          action TEXT NOT NULL, -- e.g. taxonomy
+          tokens_in INTEGER,
+          tokens_out INTEGER
+        )
+      `)
+
       await client.query(`
         CREATE INDEX IF NOT EXISTS idx_materials_source ON materials(source)
       `)
@@ -401,6 +414,60 @@ export class DatabaseService {
       console.log('Database initialized successfully')
     } finally {
       client.release()
+    }
+  }
+  async addAiUsage(record: {
+    provider: string
+    model: string
+    action: string
+    tokensIn?: number | null
+    tokensOut?: number | null
+  }): Promise<void> {
+    await pool.query(
+      `INSERT INTO ai_usage (provider, model, action, tokens_in, tokens_out)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [record.provider, record.model, record.action, record.tokensIn ?? null, record.tokensOut ?? null]
+    )
+  }
+
+  async getAiUsageSummary(): Promise<{
+    totals: { calls: number; tokensIn: number; tokensOut: number }
+    last24h: { calls: number; tokensIn: number; tokensOut: number }
+    last7d: { calls: number; tokensIn: number; tokensOut: number }
+    byAction: Array<{ action: string; calls: number }>
+  }> {
+    const totalsResult = await pool.query(
+      `SELECT COUNT(*)::int AS calls,
+              COALESCE(SUM(tokens_in), 0)::int AS "tokensIn",
+              COALESCE(SUM(tokens_out), 0)::int AS "tokensOut"
+       FROM ai_usage`
+    )
+    const last24hResult = await pool.query(
+      `SELECT COUNT(*)::int AS calls,
+              COALESCE(SUM(tokens_in), 0)::int AS "tokensIn",
+              COALESCE(SUM(tokens_out), 0)::int AS "tokensOut"
+       FROM ai_usage
+       WHERE created_at >= NOW() - INTERVAL '24 hours'`
+    )
+    const last7dResult = await pool.query(
+      `SELECT COUNT(*)::int AS calls,
+              COALESCE(SUM(tokens_in), 0)::int AS "tokensIn",
+              COALESCE(SUM(tokens_out), 0)::int AS "tokensOut"
+       FROM ai_usage
+       WHERE created_at >= NOW() - INTERVAL '7 days'`
+    )
+    const byActionResult = await pool.query(
+      `SELECT action, COUNT(*)::int AS calls
+       FROM ai_usage
+       GROUP BY action
+       ORDER BY calls DESC`
+    )
+
+    return {
+      totals: totalsResult.rows[0],
+      last24h: last24hResult.rows[0],
+      last7d: last7dResult.rows[0],
+      byAction: byActionResult.rows,
     }
   }
 

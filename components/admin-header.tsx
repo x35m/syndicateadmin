@@ -20,7 +20,7 @@ export function AdminHeader() {
     { href: '/admin/automation', label: 'Автоматизация' },
     { href: '/admin/taxonomy', label: 'Справочники' },
     { href: '/admin/logs', label: 'Логи' },
-    { href: '/admin/settings', label: 'Настройки' },
+    { href: '/admin/settings', label: 'AI' },
   ]
 
   const handleLogout = async () => {

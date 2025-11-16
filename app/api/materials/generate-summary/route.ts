@@ -573,6 +573,16 @@ export async function POST(request: Request) {
 
     const updatedMaterial = await db.getMaterialById(materialId)
 
+    const modelUsed = aiProvider === 'claude' ? claudeModel : geminiModel
+    // Учет вызова (без точных токенов — не все провайдеры возвращают их по API)
+    await db.addAiUsage({
+      provider: aiProvider,
+      model: modelUsed,
+      action: 'taxonomy',
+      tokensIn: null,
+      tokensOut: null,
+    })
+
     return NextResponse.json({
       success: true,
       data: {
